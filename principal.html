@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="scripts.js" defer></script>
+    <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+    <header>
+            <nav class="header">
+                <a class=>
+                <img src="https://www.oep.org.bo/logos/EscudoBolivia_300x300.webp" alt="Logo" >
+                </a>
+                <div class="navlinks">
+                    <a href="javascript:cargarContenido('inicio.html')">Inicio</a> 
+                    <a href="javascript:cargarContenido('productos.php')">Productos</a>
+                    <a href="javascript:cargarContenido('contacto.html')">Contáctanos</a>
+                    <a href="javascript:cargarContenido('acerca.html')">A cerca de Nosotros</a>
+                </div>
+                <div class="ver">
+                    <a href="javascript:cargarContenidoModal('carrito.php')">
+                        <img src="https://www.oep.org.bo/logos/EscudoBolivia_300x300.webp" width="55"alt="Carrito">
+                    </a>
+                    <a href="javascript:cargarContenido('perfil.php')">
+                        <img src="https://www.oep.org.bo/logos/EscudoBolivia_300x300.webp" width="55"alt="Perfil">
+                    </a>
+                </div>
+                    
+            </nav>
+            
+        </header>
+    <div id="contenido">
+        <script>
+            fetch('inicio.html')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('contenido').innerHTML = data;
+                })
+                .catch(error => console.error('Error al cargar el contenido:', error));
+        </script>
+    </div>
+        <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="cerrar" onclick="cerrarModal()">&times;</span>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+</body>
+</html>
