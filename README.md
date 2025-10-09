@@ -14,7 +14,11 @@ Instrucciones rápidas de desarrollo
 
 Backend (Laravel):
 
-```bash
+```bash# comprobar listener en 3306
+sudo ss -tulpn | grep -E ':3306\b' || true
+
+# o con lsof
+sudo lsof -i :3306 -sTCP:LISTEN -Pn || true
 cd backend
 composer install
 cp .env.example .env

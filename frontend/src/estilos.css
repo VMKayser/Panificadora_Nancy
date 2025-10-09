@@ -57,31 +57,76 @@ body {
     margin-right: 5%;
     max-width: 100px;
 }
-.presentacion{
-    width: 100vw;
-    margin-left: calc(-50vw + 50%);
+
+/* Estilos de la presentación (Hero section) */
+.presentacion {
+    width: 100%;
     height: 450px;
     background-image: url("https://img.freepik.com/foto-gratis/panaderia-artesanal_144627-19207.jpg?w=2000");
     background-size: cover;
     background-position: center;
     display: flex;
-    justify-content: left;
+    justify-content: space-between;
     align-items: center;
+    padding: 20px 5%;
+    box-sizing: border-box;
+    overflow: hidden;
 }
-.presentacion .texto{
-    margin-left: 10%;
-    text-align: center;
+
+.presentacion .texto {
+    flex: 1 1 60%;
+    min-width: 0;
+    color: white;
     font-family: 'Arial', sans-serif;
     font-style: italic;
-    color: white;
-    font-weight: 600 ;
+    font-weight: 600;
+    text-align: left;
 }
-.presentacion .logo{
-    justify-content: right;
-    text-align: right;
-    width: 80%;
-    margin-right: 3%;
+
+.presentacion .logo {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-left: 12px;
 }
+
+.presentacion .logo img {
+    max-width: 250px;
+    height: auto;
+}
+
+/* Responsive design para presentacion */
+@media (max-width: 768px) {
+    .presentacion {
+        height: 350px;
+        flex-direction: column;
+        justify-content: center;
+        padding: 24px 5%;
+    }
+    
+    .presentacion .texto {
+        text-align: center;
+        margin-bottom: 16px;
+    }
+    
+    .presentacion .texto h2 {
+        font-size: 24px !important;
+    }
+    
+    .presentacion .texto h1 {
+        font-size: 40px !important;
+    }
+    
+    .presentacion .logo {
+        margin-left: 0;
+    }
+    
+    .presentacion .logo img {
+        max-width: 150px;
+    }
+}
+
 .temporada {
     font-size: 50px;
     font-weight: 600; 
@@ -325,176 +370,7 @@ footer{
   }
 }
 
-/* 🎠 CARRUSEL CONTINUO PERSONALIZADO - NUEVOS ESTILOS */
-.carousel-container-custom {
-    width: 100%;
-    overflow: hidden;
-    background-color: #e8dfd6; /* Color beige del mockup */
-    padding: 50px 0;
-    position: relative;
-}
-
-.carousel-track {
-    display: flex;
-    gap: 20px;
-    animation: scroll-infinite 120s linear infinite; /* Más lento y largo */
-    will-change: transform;
-}
-
-.carousel-card {
-    min-width: 240px;
-    max-width: 240px;
-    background-color: white;
-    border-radius: 20px;
-    overflow: visible;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    flex-shrink: 0;
-    position: relative;
-}
-
-.carousel-card:hover {
-    transform: translateY(-8px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
-}
-
-.carousel-card-img {
-    width: 100%;
-    height: 180px;
-    object-fit: cover;
-    border-radius: 20px 20px 0 0;
-}
-
-.carousel-card-body {
-    padding: 15px;
-    text-align: left;
-    position: relative;
-}
-
-.carousel-card-title {
-    font-size: 16px;
-    font-weight: 700;
-    color: #2c3e50;
-    margin-bottom: 6px;
-}
-
-.carousel-card-text {
-    font-size: 12px;
-    color: #7f8c8d;
-    margin-bottom: 10px;
-    min-height: 36px;
-    line-height: 1.4;
-}
-
-.carousel-card-price {
-    font-size: 18px;
-    font-weight: bold;
-    color: #27ae60; /* Verde para el precio */
-    margin-bottom: 5px;
-}
-
-.carousel-card-badge {
-    font-size: 10px;
-    color: #e74c3c; /* Rojo para el aviso de anticipación */
-    font-style: italic;
-    margin-top: 5px;
-    display: block;
-}
-
-/* Botón + marrón como en el mockup */
-.carousel-add-btn {
-    position: absolute;
-    bottom: 15px;
-    right: 15px;
-    width: 35px;
-    height: 35px;
-    border-radius: 50%;
-    background-color: #8b6f47; /* Color marrón del mockup */
-    color: white;
-    border: none;
-    font-size: 24px;
-    font-weight: 300;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.3s ease;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-}
-
-.carousel-add-btn:hover {
-    background-color: #6f5739;
-    transform: scale(1.1);
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-}
-
-.carousel-add-btn:active {
-    transform: scale(0.95);
-}
-
-/* 🔄 Animación de scroll infinito REAL */
-@keyframes scroll-infinite {
-    0% {
-        transform: translateX(0);
-    }
-    100% {
-        transform: translateX(-50%); /* Se mueve exactamente la mitad para loop perfecto */
-    }
-}
-
-/* 📱 Responsive para tablet */
-@media (max-width: 768px) {
-    .carousel-card {
-        min-width: 200px;
-        max-width: 200px;
-    }
-    
-    .carousel-card-img {
-        height: 150px;
-    }
-    
-    .carousel-add-btn {
-        width: 32px;
-        height: 32px;
-        font-size: 20px;
-    }
-}
-
-/* 📱 Responsive para móvil */
-@media (max-width: 480px) {
-    .carousel-container-custom {
-        padding: 30px 0;
-    }
-    
-    .carousel-card {
-        min-width: 170px;
-        max-width: 170px;
-    }
-    
-    .carousel-card-img {
-        height: 130px;
-    }
-    
-    .carousel-card-body {
-        padding: 12px;
-    }
-    
-    .carousel-card-title {
-        font-size: 14px;
-    }
-    
-    .carousel-card-price {
-        font-size: 16px;
-    }
-    
-    .carousel-add-btn {
-        width: 30px;
-        height: 30px;
-        font-size: 18px;
-        bottom: 10px;
-        right: 10px;
-    }
-}
+/* carousel styles migrated to Carousel.module.css */
 
 
 #carrusel-container{
@@ -503,6 +379,7 @@ footer{
     position: relative;
     justify-content: center;
     align-items: center;
+    height: 10000px;
 }
 
 

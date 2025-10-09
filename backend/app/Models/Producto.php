@@ -17,11 +17,19 @@ class Producto extends Model
         'url',
         'descripcion',
         'descripcion_corta',
+        'unidad_medida',
+        'cantidad',
+        'presentacion',
+        'tiene_variantes',
+        'tiene_extras',
+        'extras_disponibles',
         'precio_minorista',
         'precio_mayorista',
         'cantidad_minima_mayoreo',
         'es_de_temporada',
         'esta_activo',
+        'permite_delivery',
+        'permite_envio_nacional',
         'requiere_tiempo_anticipacion',
         'tiempo_anticipacion',
         'unidad_tiempo',
@@ -29,12 +37,19 @@ class Producto extends Model
     ];
 
     protected $casts = [
+        'cantidad' => 'decimal:2',
         'precio_minorista' => 'decimal:2',
         'precio_mayorista' => 'decimal:2',
         'es_de_temporada' => 'boolean',
         'esta_activo' => 'boolean',
+        'permite_delivery' => 'boolean',
+        'permite_envio_nacional' => 'boolean',
         'requiere_tiempo_anticipacion' => 'boolean',
-        'limite_produccion' => 'boolean',
+        'tiene_extras' => 'boolean',
+        'limite_produccion' => 'integer',
+        'tiempo_anticipacion' => 'integer',
+        'tiene_variantes' => 'boolean',
+        'extras_disponibles' => 'array',
     ];
 
     public function categoria()

@@ -1,13 +1,25 @@
-import { Card, Button, Badge } from 'react-bootstrap';
+import { useState } from 'react';
+import { Card } from 'react-bootstrap';
 import { useCart } from '../context/CartContext';
+import { toast } from 'react-toastify';
+import ProductModal from './ProductModal';
+import styles from './ProductCard.module.css';
 
 const ProductCard = ({ producto }) => {
   const { addToCart } = useCart();
+  const [showModal, setShowModal] = useState(false);
 
-  const handleAddToCart = () => {
+  const handleAddToCart = (e) => {
+    e.stopPropagation(); // Evitar que se abra el modal
     addToCart(producto, 1);
-    // Toast notification (puedes agregar react-toastify después)
-    alert(`✅ ${producto.nombre} agregado al carrito!`);
+    toast.success(`✅ ${producto.nombre} agregado al carrito!`, {
+      position: "bottom-right",
+      autoClose: 2000,
+    });
+  };
+
+  const handleCardClick = () => {
+    setShowModal(true);
   };
 
   // Usar la primera imagen o una por defecto
@@ -15,50 +27,54 @@ const ProductCard = ({ producto }) => {
     ? producto.imagenes[0].url_imagen
     : 'https://picsum.photos/300/200';
 
-  return (
-    <Card className="h-100 shadow-sm hover-shadow" style={{ transition: 'transform 0.2s' }}>
-      <Card.Img 
-        variant="top" 
-        src={imagen} 
-        alt={producto.nombre}
-        style={{ height: '200px', objectFit: 'cover' }}
-      />
-      <Card.Body className="d-flex flex-column">
-        <Card.Title className="text-truncate">{producto.nombre}</Card.Title>
-        <Card.Text className="text-muted small flex-grow-1">
-          {producto.descripcion_corta || producto.descripcion}
-        </Card.Text>
-        
-        {/* Badges */}
-        <div className="mb-2">
-          {producto.es_de_temporada && (
-            <Badge bg="warning" text="dark" className="me-1">
-              🎃 Temporada
-            </Badge>
-          )}
-          {producto.requiere_tiempo_anticipacion && (
-            <Badge bg="danger">
-              ⏰ Anticipación
-            </Badge>
-          )}
-        </div>
+  // Usar descripción corta, o truncar la descripción larga
+  const descripcionMostrar = producto.descripcion_corta || 
+    (producto.descripcion?.length > 100 
+      ? producto.descripcion.substring(0, 100) + '...' 
+      : producto.descripcion);
 
-        {/* Precio y botón */}
-        <div className="d-flex justify-content-between align-items-center mt-auto">
-          <h5 className="mb-0 text-success">
-            Bs. {parseFloat(producto.precio_minorista).toFixed(2)}
-          </h5>
-          <Button 
-            variant="primary" 
-            size="sm"
-            onClick={handleAddToCart}
-            style={{ backgroundColor: 'rgb(145, 109, 74)', borderColor: 'rgb(145, 109, 74)' }}
-          >
-            🛒 Añadir
-          </Button>
+  return (
+    <>
+      <div className={styles.card} onClick={handleCardClick} style={{ cursor: 'pointer' }}>
+        <img
+          src={imagen}
+          alt={producto.nombre}
+          className={styles.cardImg}
+        />
+        <div className={styles.cardBody}>
+          <h5 className={styles.title}>{producto.nombre}</h5>
+          {producto.presentacion && (
+            <p className={styles.presentation}>📦 {producto.presentacion}</p>
+          )}
+          <p className={styles.text}>{descripcionMostrar}</p>
+          
+          <div className={styles.price}>
+            <div className={styles.priceH5}>
+              Bs. {parseFloat(producto.precio_minorista).toFixed(2)}
+            </div>
+            <button 
+              className={styles.addBtn}
+              onClick={handleAddToCart}
+              title="Agregar al carrito"
+            >
+              +
+            </button>
+          </div>
+          
+          {producto.requiere_tiempo_anticipacion && (
+            <div className={styles.badge}>
+              ⏰ *Pedido con {producto.tiempo_anticipacion || 24} {producto.unidad_tiempo || 'horas'} de anticipación
+            </div>
+          )}
         </div>
-      </Card.Body>
-    </Card>
+      </div>
+
+      <ProductModal
+        show={showModal}
+        onHide={() => setShowModal(false)}
+        producto={producto}
+      />
+    </>
   );
 };
 

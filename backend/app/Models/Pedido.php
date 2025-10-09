@@ -14,6 +14,7 @@ class Pedido extends Model
     protected $fillable = [
         'numero_pedido',
         'user_id',
+        'cliente_id',
         'cliente_nombre',
         'cliente_apellido',
         'cliente_email',
@@ -21,6 +22,8 @@ class Pedido extends Model
         'tipo_entrega',
         'direccion_entrega',
         'indicaciones_especiales',
+        'notas_admin',
+        'notas_cancelacion',
         'subtotal',
         'descuento',
         'total',
@@ -31,6 +34,7 @@ class Pedido extends Model
         'qr_pago',
         'referencia_pago',
         'fecha_entrega',
+        'hora_entrega',
         'fecha_pago',
     ];
 
@@ -38,7 +42,7 @@ class Pedido extends Model
         'subtotal' => 'decimal:2',
         'descuento' => 'decimal:2',
         'total' => 'decimal:2',
-        'fecha_entrega' => 'datetime',
+        'fecha_entrega' => 'date',
         'fecha_pago' => 'datetime',
     ];
 
@@ -46,6 +50,11 @@ class Pedido extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function cliente()
+    {
+        return $this->belongsTo(Cliente::class);
     }
 
     public function metodoPago()
@@ -56,5 +65,20 @@ class Pedido extends Model
     public function detalles()
     {
         return $this->hasMany(DetallePedido::class, 'pedidos_id');
+    }
+
+    protected static function booted()
+    {
+        static::created(function ($pedido) {
+            if ($pedido->cliente_id) {
+                $pedido->cliente->actualizarEstadisticas();
+            }
+        });
+
+        static::updated(function ($pedido) {
+            if ($pedido->cliente_id) {
+                $pedido->cliente->actualizarEstadisticas();
+            }
+        });
     }
 }

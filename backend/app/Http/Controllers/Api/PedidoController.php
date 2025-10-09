@@ -6,8 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Pedido;
 use App\Models\DetallePedido;
 use App\Models\Producto;
+use App\Mail\PedidoConfirmado;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 
 class PedidoController extends Controller
 {
@@ -91,8 +94,16 @@ class PedidoController extends Controller
 
             DB::commit();
 
+            // Cargar relaciones necesarias para el correo
+            $pedido->load(['detalles.producto', 'metodoPago']);
 
-            $pedido->load(['detalles', 'metodoPago']);
+            // Enviar correo de confirmación
+            try {
+                Mail::to($pedido->cliente_email)->send(new PedidoConfirmado($pedido));
+            } catch (\Exception $e) {
+                // Loguear el error pero no fallar el pedido
+                Log::error('Error enviando correo de confirmación de pedido: ' . $e->getMessage());
+            }
 
             return response()->json([
                 'message' => 'Pedido creado exitosamente',

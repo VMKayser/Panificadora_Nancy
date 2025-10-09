@@ -1,11 +1,15 @@
-import { Navbar, Nav, Container, Badge } from 'react-bootstrap';
-import { Link } from 'react-router-dom';
+import { Navbar, Nav, Container, Badge, NavDropdown } from 'react-bootstrap';
+import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import { useState } from 'react';
+import { toast } from 'react-toastify';
 import CartDrawer from './CartDrawer';
 
 const Header = () => {
   const { getTotalItems } = useCart();
+  const { user, logout, isAdmin, isVendedor } = useAuth();
+  const navigate = useNavigate();
   const cartItemsCount = getTotalItems();
   const [showCart, setShowCart] = useState(false);
 
@@ -14,6 +18,12 @@ const Header = () => {
     setShowCart(true);
   };
   const handleCloseCart = () => setShowCart(false);
+
+  const handleLogout = async () => {
+    await logout();
+    toast.success('Sesión cerrada exitosamente');
+    navigate('/');
+  };
 
   return (
     <Navbar bg="light" expand="lg" sticky="top" className="shadow-sm">
@@ -67,10 +77,37 @@ const Header = () => {
             {/* Drawer del carrito */}
             <CartDrawer show={showCart} onHide={handleCloseCart} />
 
-            {/* Perfil */}
-            <Nav.Link as={Link} to="/perfil" className="mx-2">
-              👤 Perfil
-            </Nav.Link>
+            {/* Admin Button - Solo para admin y vendedor */}
+            {(isAdmin || isVendedor) && (
+              <Nav.Link as={Link} to="/admin" className="mx-2">
+                ⚙️ Panel Admin
+              </Nav.Link>
+            )}
+
+            {/* Usuario autenticado o Login */}
+            {user ? (
+              <NavDropdown title={`👤 ${user.name}`} id="user-dropdown" className="mx-2">
+                <NavDropdown.Item as={Link} to="/perfil">
+                  ✏️ Mi Perfil
+                </NavDropdown.Item>
+                <NavDropdown.Item as={Link} to="/mis-pedidos">
+                  📦 Mis Pedidos
+                </NavDropdown.Item>
+                <NavDropdown.Divider />
+                <NavDropdown.Item onClick={handleLogout}>
+                  🚪 Cerrar Sesión
+                </NavDropdown.Item>
+              </NavDropdown>
+            ) : (
+              <>
+                <Nav.Link as={Link} to="/login" className="mx-2">
+                  � Iniciar Sesión
+                </Nav.Link>
+                <Link to="/register" className="btn btn-sm text-white ms-2" style={{ backgroundColor: '#8b6f47', border: 'none' }}>
+                  Registrarse
+                </Link>
+              </>
+            )}
           </Nav>
         </Navbar.Collapse>
       </Container>

@@ -4,13 +4,26 @@
   box-sizing: border-box;
 }
 
+:root {
+  /* Paleta de colores café personalizada */
+  --color-primary: #8b6f47;
+  --color-primary-hover: #6f5739;
+  --color-primary-active: #534031;
+  --color-text-primary: #534031;
+  --color-text-secondary: #6d5d52;
+  --color-price: #8B5F3B;
+  --color-badge: #e74c3c;
+  --color-bg-beige: rgb(243, 234, 225);
+  --color-bg-darker: #e8dfd6;
+}
+
 body {
   margin: 0;
   padding: 0;
   min-width: 100%;
   min-height: 100vh;
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  background-color: rgb(243, 234, 225);
+  background-color: var(--color-bg-beige);
   overflow-x: hidden; /* Evitar scroll horizontal */
 }
 
@@ -26,9 +39,40 @@ body {
   padding-right: 15px;
 }
 
-/* Asegurar que elementos principales ocupen 100% */
-.presentacion {
-  width: 100vw !important;
-  margin-left: 0 !important;
-  margin-right: 0 !important;
+/* Personalización de colores de Bootstrap para usar paleta café */
+.btn-primary {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  color: white !important;
 }
+
+.btn-primary:hover {
+  background-color: var(--color-primary-hover) !important;
+  border-color: var(--color-primary-hover) !important;
+}
+
+.btn-primary:active,
+.btn-primary:focus {
+  background-color: var(--color-primary-active) !important;
+  border-color: var(--color-primary-active) !important;
+  box-shadow: 0 0 0 0.2rem rgba(139, 111, 71, 0.5) !important;
+}
+
+.btn-outline-primary {
+  color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+}
+
+.btn-outline-primary:hover {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  color: white !important;
+}
+
+.spinner-border.text-primary,
+.spinner-border-primary {
+  color: var(--color-primary) !important;
+}
+
+/* Asegurar que elementos principales ocupen 100% */
+/* presentacion moved to Presentacion.module.css */

@@ -1,0 +1,70 @@
+.presentacion {
+  width: 100%;
+  height: 450px;
+  background-image: url("https://img.freepik.com/foto-gratis/panaderia-artesanal_144627-19207.jpg?w=2000");
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 5%;
+  box-sizing: border-box;
+  overflow: hidden; /* evita que elementos hijos desborden */
+}
+
+.texto {
+  flex: 1 1 60%;
+  min-width: 0; /* importante para truncar contenido dentro de flex */
+  color: white;
+  font-family: 'Arial', sans-serif;
+  font-style: italic;
+  font-weight: 600;
+  text-align: left;
+}
+
+.logo {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-left: 12px;
+}
+
+.logo img {
+  width: 250px;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Ajustes responsivos para móviles */
+@media (max-width: 768px) {
+  .presentacion {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    height: auto;
+    padding: 30px 6%;
+  }
+
+  .texto {
+    flex: none;
+    width: 100%;
+    margin-bottom: 14px;
+  }
+
+  .logo {
+    margin-left: 0;
+  }
+
+  .logo img {
+    width: 140px;
+  }
+}
+
+@media (max-width: 480px) {
+  .presentacion { padding: 24px 5%; }
+  .logo img { width: 120px; }
+  .texto h2 { font-size: 22px; }
+  .texto h1 { font-size: 36px; }
+}

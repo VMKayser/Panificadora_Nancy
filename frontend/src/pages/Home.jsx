@@ -3,6 +3,7 @@ import { Container, Row, Col, Button, ButtonGroup, Spinner, Alert } from 'react-
 import { getProductos } from '../services/api';
 import Carousel from '../components/Carousel';
 import ProductCard from '../components/ProductCard';
+import '../estilos.css'; // Importar estilos de presentación
 
 const Home = () => {
   const [productosTemporada, setProductosTemporada] = useState([]);
@@ -60,15 +61,13 @@ const Home = () => {
       {/* Hero / Presentación */}
       <div className="presentacion">
         <div className="texto">
-          <h2 style={{ fontSize: '30px' }}>Elaborado como en casa</h2>
-          <br />
-          <h1 style={{ fontSize: '60px' }}>Panificadora</h1>
-          <h1 style={{ fontSize: '60px' }}>Nancy</h1>
+          <h2 style={{ fontSize: '30px', marginBottom: '10px' }}>Elaborado como en casa</h2>
+          <h1 style={{ fontSize: '60px', marginBottom: '0' }}>Panificadora</h1>
+          <h1 style={{ fontSize: '60px', marginTop: '0' }}>Nancy</h1>
         </div>
         <div className="logo">
           <img 
             src="https://www.oep.org.bo/logos/EscudoBolivia_300x300.webp" 
-            width="250" 
             alt="Logo" 
           />
         </div>
@@ -123,14 +122,19 @@ const Home = () => {
           </ButtonGroup>
         </div>
 
-        {/* Grid de Productos con Bootstrap Grid */}
-        <Row xs={1} md={2} lg={3} xl={4} className="g-4">
+        {/* Grid de Productos usando Flexbox para anchos fijos */}
+        <div style={{ 
+          display: 'flex', 
+          flexWrap: 'wrap', 
+          gap: '20px',
+          justifyContent: 'center',
+          textAlign: 'center',
+          alignItems: 'center'
+        }}>
           {productosFiltrados.map(producto => (
-            <Col key={producto.id}>
-              <ProductCard producto={producto} />
-            </Col>
+            <ProductCard key={producto.id} producto={producto} />
           ))}
-        </Row>
+        </div>
 
         {productosFiltrados.length === 0 && (
           <Alert variant="info" className="text-center mt-4">

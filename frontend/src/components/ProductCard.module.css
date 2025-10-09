@@ -1,0 +1,162 @@
+/* Estilos copiados del Carousel para mantener consistencia */
+
+.card {
+  min-width: 240px;
+  max-width: 240px;
+  width: 240px;
+  height: 380px; /* Altura fija para todas las tarjetas */
+  background-color: white;
+  border-radius: 20px;
+  overflow: hidden; /* Cambiado de visible a hidden para controlar el contenido */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  flex-shrink: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+}
+
+.cardImg {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  border-radius: 20px 20px 0 0;
+}
+
+.cardBody {
+  padding: 15px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  flex: 1; /* Permite que el body ocupe el espacio restante */
+  min-height: 0; /* Necesario para que funcione correctamente el flex */
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #534031;
+  margin-bottom: 6px;
+}
+
+.presentation {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b6f47;
+  margin: 0 0 6px 0;
+  padding: 3px 8px;
+  background-color: #f5f1ed;
+  border-radius: 8px;
+  display: inline-block;
+  width: fit-content;
+}
+
+.text {
+  font-size: 12px;
+  color: #6d5d52;
+  margin-bottom: 10px;
+  line-height: 1.4;
+  height: 50px; /* Altura fija para la descripción */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3; /* Máximo 3 líneas */
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.price {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 18px;
+  font-weight: bold;
+  color: #8B5F3B;
+  margin-bottom: 5px;
+  margin-top: auto; /* Empuja el precio al final del card */
+  position: relative;
+  padding-right: 0px;
+}
+
+.priceH5 {
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  font-size: 18px;
+  color: #8B5F3B;
+}
+
+.addBtn {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background-color: #8b6f47;
+  color: white;
+  border: none;
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.18s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  margin-left: auto;
+}
+
+.addBtn:hover {
+  background-color: #6f5739;
+  transform: scale(1.1);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.addBtn:active {
+  transform: scale(0.95);
+}
+
+.badge {
+  margin-top: 7px;
+  margin-bottom: 6px;
+  font-size: 11px; /* Reducido ligeramente */
+  color: #e74c3c;
+  font-style: italic;
+  display: block;
+  height: 32px; /* Altura fija para el badge */
+  overflow: hidden;
+  line-height: 1.3;
+}
+
+@media (max-width: 768px) {
+  .card { 
+    min-width: 200px; 
+    max-width: 200px; 
+    width: 200px; 
+    height: 350px; /* Altura fija reducida para tablets */
+  }
+  .cardImg { height: 150px; }
+  .addBtn { width: 32px; height: 32px; font-size: 20px; }
+  .text { height: 45px; }
+}
+
+@media (max-width: 480px) {
+  .card { 
+    min-width: 170px; 
+    max-width: 170px; 
+    width: 170px; 
+    height: 320px; /* Altura fija reducida para móviles */
+  }
+  .cardImg { height: 130px; }
+  .cardBody { padding: 12px; }
+  .title { font-size: 14px; }
+  .price { font-size: 16px; }
+  .addBtn { width: 30px; height: 30px; font-size: 18px; }
+  .text { height: 40px; }
+  .badge { font-size: 10px; height: 28px; }
+}
