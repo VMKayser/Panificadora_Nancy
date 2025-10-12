@@ -28,7 +28,25 @@ export default function Login() {
       
       if (result.success) {
         toast.success('¡Bienvenido!');
-        navigate('/');
+        
+        // Obtener el usuario desde localStorage (recién guardado)
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+          const user = JSON.parse(userStr);
+          // Redirigir según rol
+          const isAdmin = user.roles?.some(role => role.name === 'admin');
+          const isVendedor = user.roles?.some(role => role.name === 'vendedor');
+          
+          if (isAdmin) {
+            navigate('/admin');
+          } else if (isVendedor) {
+            navigate('/vendedor');
+          } else {
+            navigate('/');
+          }
+        } else {
+          navigate('/');
+        }
       } else {
         toast.error(result.error);
       }

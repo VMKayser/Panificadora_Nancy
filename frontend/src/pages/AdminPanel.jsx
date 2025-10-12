@@ -5,6 +5,11 @@ import { toast } from 'react-toastify';
 import ProductoForm from '../components/admin/ProductoForm';
 import PedidosPanel from './admin/PedidosPanel';
 import ClientesPanel from './admin/ClientesPanel';
+import PanaderosPanel from './admin/PanaderosPanel';
+import VendedoresPanel from './admin/VendedoresPanel';
+import InventarioPanel from './admin/InventarioPanel';
+import CategoriasPanel from './admin/CategoriasPanel';
+import MovimientosInventarioPanel from './admin/MovimientosInventarioPanel';
 
 const AdminPanel = () => {
   const [productos, setProductos] = useState([]);
@@ -112,6 +117,11 @@ const AdminPanel = () => {
             {activeTab === 'productos' && 'Gestiona tu catálogo de productos'}
             {activeTab === 'pedidos' && 'Gestiona los pedidos de clientes'}
             {activeTab === 'clientes' && 'Gestiona la base de clientes'}
+            {activeTab === 'panaderos' && 'Gestiona el equipo de panaderos'}
+            {activeTab === 'vendedores' && 'Gestiona el equipo de vendedores'}
+            {activeTab === 'inventario' && 'Controla el inventario de materias primas y productos finales'}
+            {activeTab === 'categorias' && 'Organiza tus categorías de productos'}
+            {activeTab === 'movimientos' && 'Registra entradas y salidas de stock'}
           </p>
         </Col>
         {activeTab === 'productos' && (
@@ -144,10 +154,40 @@ const AdminPanel = () => {
             👥 Clientes
           </Nav.Link>
         </Nav.Item>
+        <Nav.Item>
+          <Nav.Link eventKey="panaderos">
+            🧑‍🍳 Panaderos
+          </Nav.Link>
+        </Nav.Item>
+        <Nav.Item>
+          <Nav.Link eventKey="vendedores">
+            💼 Vendedores
+          </Nav.Link>
+        </Nav.Item>
+        <Nav.Item>
+          <Nav.Link eventKey="inventario">
+            📦 Inventario
+          </Nav.Link>
+        </Nav.Item>
+        <Nav.Item>
+          <Nav.Link eventKey="categorias">
+            🏷️ Categorías
+          </Nav.Link>
+        </Nav.Item>
+        <Nav.Item>
+          <Nav.Link eventKey="movimientos">
+            ↔️ Movimientos
+          </Nav.Link>
+        </Nav.Item>
       </Nav>
 
       {activeTab === 'pedidos' && <PedidosPanel />}
       {activeTab === 'clientes' && <ClientesPanel />}
+      {activeTab === 'panaderos' && <PanaderosPanel />}
+      {activeTab === 'vendedores' && <VendedoresPanel />}
+      {activeTab === 'inventario' && <InventarioPanel />}
+      {activeTab === 'categorias' && <CategoriasPanel />}
+      {activeTab === 'movimientos' && <MovimientosInventarioPanel />}
 
       {activeTab === 'productos' && (
         <>
@@ -252,9 +292,17 @@ const AdminPanel = () => {
                   <tr key={producto.id}>
                     <td>
                       <img
-                        src={producto.imagenes?.[0]?.url_imagen || 'https://via.placeholder.com/60'}
+                        src={
+                          producto.imagenes?.[0]?.url_imagen_completa
+                            || producto.imagenes?.[0]?.url_imagen
+                            || 'https://via.placeholder.com/60?text=Sin+Imagen'
+                        }
                         alt={producto.nombre}
                         style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '4px' }}
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = 'https://via.placeholder.com/60?text=Error';
+                        }}
                       />
                     </td>
                     <td>

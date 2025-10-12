@@ -4,24 +4,7 @@
   background-color: #e8dfd6;
   padding: 50px 0;
   position: relative;
-  /* Optimizaci.addBtn {
-  position: relative;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background-color: #8b6f47;
-  color: white;
-  border: none;
-  font-size: 20px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.18s ease;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-  margin-left: auto;
-}olling */
+  /* Optimización para scrolling suave */
   -webkit-overflow-scrolling: touch;
 }
 
@@ -34,6 +17,9 @@
   -webkit-backface-visibility: hidden;
   transform-style: preserve-3d;
   perspective: 1000px;
+  /* Mejoras para evitar lagueado */
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
 }
 
 .track:hover {
@@ -215,7 +201,8 @@
     transform: translate3d(0, 0, 0);
   }
   100% {
-    transform: translate3d(-50%, 0, 0);
+    /* Cambiar de -50% a -33.33% porque ahora triplicamos los productos */
+    transform: translate3d(-33.33%, 0, 0);
   }
 }
 

@@ -86,7 +86,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
 
     try {
       setUpdating(true);
-      await admin.addNotasPedido(pedido.id, { notas: notas.trim() });
+      await admin.addNotasPedido(pedido.id, { notas_admin: notas.trim() });
       toast.success('Nota agregada correctamente');
       setNotas('');
       onClose();
@@ -111,7 +111,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
 
     try {
       setUpdating(true);
-      await admin.cancelarPedido(pedido.id, { motivo: motivoCancelacion.trim() });
+      await admin.cancelarPedido(pedido.id, { motivo_cancelacion: motivoCancelacion.trim() });
       toast.success('Pedido cancelado');
       onClose();
     } catch (error) {
@@ -165,15 +165,15 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                         <tbody>
                           <tr>
                             <td className="text-muted" style={{ width: '40%' }}>Nombre:</td>
-                            <td><strong>{pedido.nombre_cliente} {pedido.apellido_cliente}</strong></td>
+                            <td><strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong></td>
                           </tr>
                           <tr>
                             <td className="text-muted">Email:</td>
-                            <td>{pedido.email_cliente}</td>
+                            <td>{pedido.cliente_email}</td>
                           </tr>
                           <tr>
                             <td className="text-muted">Teléfono:</td>
-                            <td>{pedido.telefono_cliente}</td>
+                            <td>{pedido.cliente_telefono}</td>
                           </tr>
                         </tbody>
                       </table>

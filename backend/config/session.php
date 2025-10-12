@@ -169,7 +169,8 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    // For production, prefer true (only send cookie over HTTPS). Controlled by env var SESSION_SECURE_COOKIE
+    'secure' => env('SESSION_SECURE_COOKIE', true),
 
     /*
     |--------------------------------------------------------------------------
@@ -182,6 +183,7 @@ return [
     |
     */
 
+    // Prevent JavaScript access to session cookie
     'http_only' => env('SESSION_HTTP_ONLY', true),
 
     /*
@@ -199,6 +201,7 @@ return [
     |
     */
 
+    // Consider 'lax' or 'strict' depending on your cross-site needs. 'lax' allows top-level GET navigation.
     'same_site' => env('SESSION_SAME_SITE', 'lax'),
 
     /*

@@ -9,10 +9,12 @@ const ProductModal = ({ show, onHide, producto }) => {
   const [cantidad, setCantidad] = useState(1);
   const [extrasSeleccionados, setExtrasSeleccionados] = useState({});
 
+  // Return early si no hay producto
   if (!producto) return null;
 
-  const imagen = producto.imagenes && producto.imagenes.length > 0
-    ? producto.imagenes[0].url_imagen
+  // La variable imagen
+  const imagen = producto?.imagenes && producto.imagenes.length > 0
+    ? (producto.imagenes[0].url_imagen_completa || producto.imagenes[0].url_imagen)
     : 'https://picsum.photos/600/400';
 
   const handleExtraChange = (extraIndex, cantidadDocenas) => {
@@ -104,6 +106,22 @@ const ProductModal = ({ show, onHide, producto }) => {
               Bs {parseFloat(producto.precio_minorista).toFixed(2)}
             </h3>
 
+            {/* Descripción completa del producto */}
+            {producto.descripcion && (
+              <div style={{
+                backgroundColor: '#f8f9fa',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                fontSize: '14px',
+                lineHeight: '1.6',
+                color: '#444'
+              }}>
+                <strong style={{ color: '#534031', display: 'block', marginBottom: '6px' }}>Descripción:</strong>
+                {producto.descripcion}
+              </div>
+            )}
+
             {producto.requiere_tiempo_anticipacion && (
               <div style={{
                 backgroundColor: '#fff3cd',
@@ -166,7 +184,7 @@ const ProductModal = ({ show, onHide, producto }) => {
                             <strong>{extra.nombre}</strong>
                             <div style={{ fontSize: '13px', color: '#666' }}>{extra.descripcion}</div>
                             <div style={{ fontSize: '14px', color: '#8b6f47', fontWeight: 'bold' }}>
-                              Bs {extra.precio_unitario.toFixed(2)} x {extra.cantidad_minima} {extra.unidad}
+                              Bs {(extra.precio_unitario || 0).toFixed(2)} x {extra.cantidad_minima || 1} {extra.unidad || 'unidad'}
                             </div>
                           </div>
                         }
@@ -193,7 +211,7 @@ const ProductModal = ({ show, onHide, producto }) => {
                             +
                           </Button>
                           <span style={{ fontSize: '14px', color: '#8b6f47', marginLeft: '8px' }}>
-                            = Bs {(extra.precio_unitario * extra.cantidad_minima * extrasSeleccionados[index]).toFixed(2)}
+                            = Bs {((extra.precio_unitario || 0) * (extra.cantidad_minima || 1) * extrasSeleccionados[index]).toFixed(2)}
                           </span>
                         </div>
                       )}

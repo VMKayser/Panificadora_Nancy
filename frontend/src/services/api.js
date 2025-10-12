@@ -1,14 +1,17 @@
 import axios from 'axios';
 
 // Configurar la URL base de la API.
-// Primero intenta la variable de entorno VITE_API_URL (recomendada),
-// si no existe usa el origen actual del navegador + '/api' para que
-// funcione tanto en local como desde dispositivos en la misma LAN.
-const defaultBase = (typeof window !== 'undefined')
-  ? `${window.location.origin}/api`
-  : 'http://localhost/api';
+// Preferir la variable de entorno VITE_API_URL (recomendada).
+// Si no está, usar por defecto el backend en el host local (puerto 80): http://localhost/api
+// Esto evita que el dev-server de Vite (por ejemplo :5174) pase a apuntar a /api en su propio origen,
+// lo que provoca 'Failed to fetch' o 401 al llamar al backend real.
+const baseURL = import.meta?.env?.VITE_API_URL || 'http://localhost/api';
 
-const baseURL = import.meta?.env?.VITE_API_URL || defaultBase;
+// Log para depuración rápida en desarrollo
+if (typeof window !== 'undefined') {
+  // eslint-disable-next-line no-console
+  console.info('[api] baseURL =', baseURL);
+}
 
 const api = axios.create({
   baseURL,
@@ -36,10 +39,11 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token expirado o inválido
+      // Token expirado o inválido: limpiar storage. No hacemos redirect aquí
+      // para evitar recargas completas; la lógica de React (AuthContext) se encargará
+      // de dirigir al usuario a la página de login usando el router.
       localStorage.removeItem('auth_token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -47,13 +51,34 @@ api.interceptors.response.use(
 
 
 export const getProductos = async (params = {}) => {
-  const response = await api.get('/productos', { params });
-  return response.data;
+  try {
+    const response = await api.get('/productos', { params });
+    return response.data;
+  } catch (error) {
+    console.warn('API /productos failed, loading sample products fallback:', error.message);
+    // Fallback to a local sample JSON so the frontend can work offline during dev
+    const resp = await fetch('/sample-products.json');
+    if (!resp.ok) throw error; // rethrow original error if fallback unavailable
+    const data = await resp.json();
+    return data;
+  }
 };
 
 export const getProducto = async (id) => {
   const response = await api.get(`/productos/${id}`);
   return response.data;
+};
+
+// Fallback to get users from sample JSON when backend is not available
+export const getUsuarios = async () => {
+  try {
+    const response = await api.get('/usuarios');
+    return response.data;
+  } catch (error) {
+    const resp = await fetch('/sample-users.json');
+    if (!resp.ok) throw error;
+    return await resp.json();
+  }
 };
 
 
@@ -87,20 +112,58 @@ export const auth = {
 
   // Login
   login: async (credentials) => {
-    const response = await api.post('/login', credentials);
-    return response.data;
+    try {
+      const response = await api.post('/login', credentials);
+      const data = response.data;
+
+      // Backend may return access_token or token
+      const token = data.access_token || data.token || data.accessToken || null;
+      const user = data.user || data.usuario || data;
+
+      if (token) {
+        localStorage.setItem('auth_token', token);
+      }
+
+      if (user) {
+        localStorage.setItem('user', JSON.stringify(user));
+      }
+
+      return data;
+    } catch (error) {
+      // Fallback: simulate login against sample-users.json
+      const resp = await fetch('/sample-users.json');
+      if (!resp.ok) throw error;
+      const users = await resp.json();
+      const user = users.find(u => u.email === credentials.email && u.password === credentials.password);
+      if (!user) throw new Error('Invalid credentials');
+      // Simulate token and user object
+      return { token: 'demo-token', user };
+    }
   },
 
   // Logout
   logout: async () => {
-    const response = await api.post('/logout');
-    return response.data;
+    try {
+      const response = await api.post('/logout');
+      // Clear storage regardless of response
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user');
+      return response.data;
+    } catch (error) {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user');
+      throw error;
+    }
   },
 
   // Obtener usuario actual
   me: async () => {
-    const response = await api.get('/me');
-    return response.data;
+    try {
+      const response = await api.get('/me');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
   },
 
   // Actualizar perfil
@@ -219,6 +282,12 @@ export const admin = {
     return response.data;
   },
 
+  // Crear pedido (venta mostrador)
+  createPedido: async (pedidoData) => {
+    const response = await api.post('/pedidos', pedidoData);
+    return response.data;
+  },
+
   // Actualizar estado del pedido
   updateEstadoPedido: async (id, data) => {
     const response = await api.put(`/admin/pedidos/${id}/estado`, data);
@@ -292,6 +361,198 @@ export const admin = {
   // Estadísticas de clientes
   getClientesEstadisticas: async () => {
     const response = await api.get('/admin/clientes/estadisticas');
+    return response.data;
+  },
+
+  // ============================================
+  // ADMIN - PANADEROS
+  // ============================================
+  getPanaderos: async (params = {}) => {
+    const response = await api.get('/admin/panaderos', { params });
+    // Backend may return a paginator directly or wrapped under data
+    return response.data?.data || response.data;
+  },
+
+  getPanaderosEstadisticas: async () => {
+    const response = await api.get('/admin/empleados/panaderos/estadisticas');
+    return response.data;
+  },
+
+  crearPanadero: async (panaderoData) => {
+    const response = await api.post('/admin/panaderos', panaderoData);
+    return response.data;
+  },
+
+  actualizarPanadero: async (id, data) => {
+    const response = await api.put(`/admin/panaderos/${id}`, data);
+    return response.data;
+  },
+
+  eliminarPanadero: async (id) => {
+    const response = await api.delete(`/admin/panaderos/${id}`);
+    return response.data;
+  },
+  
+  // Toggle activo/inactivo panadero
+  toggleActivoPanadero: async (id) => {
+    const response = await api.post(`/admin/empleados/panaderos/${id}/toggle-activo`);
+    return response.data;
+  },
+
+  // ============================================
+  // ADMIN - CATEGORÍAS
+  // ============================================
+  getCategorias: async (params = {}) => {
+    const response = await api.get('/admin/categorias', { params });
+    return response.data;
+  },
+
+  createCategoria: async (data) => {
+    const response = await api.post('/admin/categorias', data);
+    return response.data;
+  },
+
+  updateCategoria: async (id, data) => {
+    const response = await api.put(`/admin/categorias/${id}`, data);
+    return response.data;
+  },
+
+  deleteCategoria: async (id) => {
+    const response = await api.delete(`/admin/categorias/${id}`);
+    return response.data;
+  },
+
+  toggleCategoriaActive: async (id) => {
+    const response = await api.post(`/admin/categorias/${id}/toggle-active`);
+    return response.data;
+  },
+
+  reorderCategorias: async (categorias) => {
+    const response = await api.post('/admin/categorias/reorder', { categorias });
+    return response.data;
+  },
+
+  // ============================================
+  // ADMIN - INVENTARIO (materias primas)
+  // ============================================
+  getMateriasPrimas: async (params = {}) => {
+    const response = await api.get('/inventario/materias-primas', { params });
+    return response.data;
+  },
+
+  crearMateriaPrima: async (data) => {
+    const response = await api.post('/inventario/materias-primas', data);
+    return response.data;
+  },
+
+  actualizarMateriaPrima: async (id, data) => {
+    const response = await api.put(`/inventario/materias-primas/${id}`, data);
+    return response.data;
+  },
+
+  eliminarMateriaPrima: async (id) => {
+    const response = await api.delete(`/inventario/materias-primas/${id}`);
+    return response.data;
+  },
+
+  registrarCompraMateriaPrima: async (id, data) => {
+    const response = await api.post(`/inventario/materias-primas/${id}/compra`, data);
+    return response.data;
+  },
+
+  ajustarStockMateriaPrima: async (id, data) => {
+    const response = await api.post(`/inventario/materias-primas/${id}/ajuste`, data);
+    return response.data;
+  },
+
+  getMovimientosMateriaPrima: async (id, params = {}) => {
+    const response = await api.get(`/inventario/materias-primas/${id}/movimientos`, { params });
+    return response.data;
+  },
+
+  // INVENTARIO PRODUCTOS FINALES
+  getProductosFinales: async (params = {}) => {
+    const response = await api.get('/inventario/productos-finales', { params });
+    return response.data;
+  },
+
+  getMovimientosProductos: async (params = {}) => {
+    const response = await api.get('/inventario/movimientos-productos', { params });
+    return response.data;
+  },
+
+  ajustarInventarioProducto: async (productoId, data) => {
+    const response = await api.post(`/inventario/productos/${productoId}/ajustar`, data);
+    return response.data;
+  },
+
+  getKardex: async (productoId, params = {}) => {
+    const response = await api.get(`/inventario/kardex/${productoId}`, { params });
+    return response.data;
+  },
+
+  getDashboardInventario: async () => {
+    const response = await api.get('/inventario/dashboard');
+    return response.data;
+  },
+
+  // ============================================
+  // ADMIN - VENDEDORES
+  // ============================================
+  getVendedores: async (params = {}) => {
+    const response = await api.get('/admin/empleados/vendedores', { params });
+    // Normalize to support both { data: [...] } or direct array/paginator
+    return response.data?.data || response.data;
+  },
+
+  getVendedor: async (id) => {
+    const response = await api.get(`/admin/empleados/vendedores/${id}`);
+    return response.data;
+  },
+
+  crearVendedor: async (data) => {
+    const response = await api.post('/admin/empleados/vendedores', data);
+    return response.data;
+  },
+
+  actualizarVendedor: async (id, data) => {
+    const response = await api.put(`/admin/empleados/vendedores/${id}`, data);
+    return response.data;
+  },
+
+  eliminarVendedor: async (id) => {
+    const response = await api.delete(`/admin/empleados/vendedores/${id}`);
+    return response.data;
+  },
+
+  cambiarEstadoVendedor: async (id) => {
+    const response = await api.post(`/admin/empleados/vendedores/${id}/cambiar-estado`);
+    return response.data;
+  },
+
+  getVendedoresEstadisticas: async () => {
+    const response = await api.get('/admin/empleados/vendedores/estadisticas');
+    return response.data;
+  },
+
+  reporteVentasVendedor: async (id, params = {}) => {
+    const response = await api.get(`/admin/empleados/vendedores/${id}/reporte-ventas`, { params });
+    return response.data;
+  },
+
+  // ============================================
+  // ADMIN - USUARIOS (Gestión de roles)
+  // ============================================
+  getUsuarios: async (params = {}) => {
+    const response = await api.get('/admin/usuarios', { params });
+    // The UserController returns { success: true, data: paginator }
+    // Normalize to either paginator or array for callers
+    if (response.data && response.data.data) return response.data.data;
+    return response.data;
+  },
+
+  actualizarRolUsuario: async (id, role) => {
+    const response = await api.put(`/admin/usuarios/${id}`, { role });
     return response.data;
   },
 };

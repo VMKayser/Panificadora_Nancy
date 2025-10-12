@@ -1,0 +1,103 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class Panadero extends Model
+{
+    use HasFactory, SoftDeletes;
+
+    protected $table = 'panaderos';
+
+    protected $fillable = [
+        'user_id',
+        'codigo_panadero',
+        'nombre',
+        'apellido',
+        'email',
+        'telefono',
+        'ci',
+        'direccion',
+        'fecha_ingreso',
+        'turno',
+        'especialidad',
+        'salario_base',
+        'salario_por_kilo',
+        'total_kilos_producidos',
+        'total_unidades_producidas',
+        'ultima_produccion',
+        'activo',
+        'observaciones'
+    ];
+
+    protected $casts = [
+        'fecha_ingreso' => 'date',
+        'ultima_produccion' => 'date',
+        'salario_base' => 'decimal:2',
+        'salario_por_kilo' => 'decimal:2',
+        'activo' => 'boolean',
+    ];
+
+    protected $appends = ['salario_por_kilo_total'];
+
+    public function getSalarioPorKiloTotalAttribute()
+    {
+        $precio = floatval($this->salario_por_kilo ?? 0);
+        $kg = intval($this->total_kilos_producidos ?? 0);
+        return number_format($precio * $kg, 2, '.', '');
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function producciones()
+    {
+        return $this->hasMany(Produccion::class);
+    }
+
+    public function getNombreCompletoAttribute()
+    {
+        // Si hay user_id, usar nombre del usuario
+        if ($this->user) {
+            return $this->user->name;
+        }
+        // Si no, usar nombre y apellido directos (legacy)
+        return "{$this->nombre} {$this->apellido}";
+    }
+    
+    // Generar código único de panadero
+    public static function generarCodigoPanadero()
+    {
+        $ultimoPanadero = self::orderBy('id', 'desc')->first();
+        $numero = $ultimoPanadero ? ($ultimoPanadero->id + 1) : 1;
+        return 'PAN-' . str_pad($numero, 4, '0', STR_PAD_LEFT);
+    }
+
+    public function actualizarEstadisticas()
+    {
+        $this->total_kilos_producidos = $this->producciones()->sum('cantidad_kg');
+        $this->total_unidades_producidas = $this->producciones()->sum('cantidad_unidades');
+        $this->ultima_produccion = $this->producciones()->latest('fecha_produccion')->first()?->fecha_produccion;
+        $this->save();
+    }
+
+    public function scopeActivos($query)
+    {
+        return $query->where('activo', true);
+    }
+
+    public function scopePorTurno($query, $turno)
+    {
+        return $query->where('turno', $turno);
+    }
+
+    public function scopePorEspecialidad($query, $especialidad)
+    {
+        return $query->where('especialidad', $especialidad);
+    }
+}

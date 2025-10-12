@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSEO } from '../hooks/useSEO';
 import { Container, Row, Col, Form, Button, Card, ListGroup, Image } from 'react-bootstrap';
 import { useCart } from '../context/CartContext';
 import { crearPedido, getMetodosPago } from '../services/api';
@@ -26,6 +27,13 @@ const Checkout = () => {
   const [loading, setLoading] = useState(false);
   const [descuento, setDescuento] = useState(0);
   const [fechaEntrega, setFechaEntrega] = useState('');
+
+  // SEO: no indexar la página de checkout
+  useSEO({
+    title: 'Checkout - Panificadora Nancy',
+    description: 'Completa tu pedido de pan y repostería. Pago seguro y envío rápido.',
+    noindex: true
+  });
 
   // Cargar métodos de pago
   useEffect(() => {
@@ -368,7 +376,7 @@ const Checkout = () => {
                     <ListGroup.Item key={item.id} className="px-0">
                       <div className="d-flex align-items-center">
                         <Image
-                          src={item.imagenes?.[0]?.url_imagen || 'https://picsum.photos/80/80'}
+                          src={item.imagenes?.[0]?.url_imagen_completa || item.imagenes?.[0]?.url_imagen || 'https://picsum.photos/80/80'}
                           rounded
                           style={{ width: '60px', height: '60px', objectFit: 'cover', marginRight: '12px' }}
                         />

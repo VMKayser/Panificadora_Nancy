@@ -1,0 +1,36 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+Allow: /productos
+Allow: /carrito
+Allow: /perfil
+Allow: /categorias/*
+
+# Disallow admin and private areas
+Disallow: /admin/
+Disallow: /api/
+Disallow: /backend/
+Disallow: /login
+Disallow: /register
+
+# Crawl-delay for non-Google bots
+User-agent: *
+Crawl-delay: 1
+
+# No crawl-delay for Google
+User-agent: Googlebot
+Crawl-delay: 0
+
+# Allow Google Image Bot
+User-agent: Googlebot-Image
+Allow: /
+
+# Block bad bots
+User-agent: AhrefsBot
+User-agent: SemrushBot
+User-agent: DotBot
+User-agent: MJ12bot
+Disallow: /
+
+# Sitemap location
+Sitemap: https://www.panificadoranancy.com/sitemap.xml

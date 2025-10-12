@@ -72,4 +72,52 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->roles()->whereIn('name', (array) $roles)->exists();
     }
+
+    /**
+     * Relación con cliente (si el usuario es un cliente)
+     */
+    public function cliente()
+    {
+        return $this->hasOne(Cliente::class, 'email', 'email');
+    }
+
+    /**
+     * Relación con panadero (si el usuario es panadero)
+     */
+    public function panadero()
+    {
+        return $this->hasOne(Panadero::class);
+    }
+
+    /**
+     * Relación con vendedor (si el usuario es vendedor)
+     */
+    public function vendedor()
+    {
+        return $this->hasOne(Vendedor::class);
+    }
+
+    /**
+     * Verificar si el usuario es cliente
+     */
+    public function esCliente()
+    {
+        return $this->hasRole('cliente');
+    }
+
+    /**
+     * Verificar si el usuario es panadero
+     */
+    public function esPanadero()
+    {
+        return $this->hasRole('panadero');
+    }
+
+    /**
+     * Verificar si el usuario es vendedor
+     */
+    public function esVendedor()
+    {
+        return $this->hasRole('vendedor');
+    }
 }

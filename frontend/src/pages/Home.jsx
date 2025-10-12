@@ -3,7 +3,9 @@ import { Container, Row, Col, Button, ButtonGroup, Spinner, Alert } from 'react-
 import { getProductos } from '../services/api';
 import Carousel from '../components/Carousel';
 import ProductCard from '../components/ProductCard';
+import Footer from '../components/Footer';
 import '../estilos.css'; // Importar estilos de presentación
+import { useSEO, generateProductListSchema } from '../hooks/useSEO';
 
 const Home = () => {
   const [productosTemporada, setProductosTemporada] = useState([]);
@@ -11,6 +13,16 @@ const Home = () => {
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('todos');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // SEO debe llamarse SIEMPRE, antes de cualquier return condicional
+  useSEO({
+    title: 'Panificadora Nancy - Pan Artesanal Fresco | Productos',
+    description: 'Explora nuestra variedad de panes artesanales, bizcochos y tortas. Pedidos online con entrega el mismo día.',
+    keywords: 'pan artesanal, pan fresco, pedidos online, bizcochos, tortas',
+    image: '/productos-og.jpg',
+    canonical: 'https://www.panificadoranancy.com/productos',
+    structuredData: todosProductos.length > 0 ? generateProductListSchema(todosProductos) : null
+  });
 
   useEffect(() => {
     fetchProductos();
@@ -58,17 +70,18 @@ const Home = () => {
 
   return (
     <>
-      {/* Hero / Presentación */}
+  {/* Hero / Presentación */}
       <div className="presentacion">
         <div className="texto">
-          <h2 style={{ fontSize: '30px', marginBottom: '10px' }}>Elaborado como en casa</h2>
-          <h1 style={{ fontSize: '60px', marginBottom: '0' }}>Panificadora</h1>
-          <h1 style={{ fontSize: '60px', marginTop: '0' }}>Nancy</h1>
+          <h2 className="hero-subtitle">Elaborado como en casa</h2>
+          <h1 className="hero-title">Panificadora</h1>
+          <h1 className="hero-title hero-title--accent">Nancy</h1>
         </div>
         <div className="logo">
           <img 
-            src="https://www.oep.org.bo/logos/EscudoBolivia_300x300.webp" 
-            alt="Logo" 
+            src={`${import.meta.env.BASE_URL}images/logo.jpg`}
+            alt="Logo Panificadora Nancy" 
+            className="hero-logo"
           />
         </div>
       </div>
@@ -144,30 +157,7 @@ const Home = () => {
       </Container>
 
       {/* Footer */}
-      <footer style={{ backgroundColor: 'rgb(83, 64, 49)', color: 'white', padding: '40px 0', width: '100%' }}>
-        <Container fluid>
-          <Row>
-            <Col md={4}>
-              <h3>Panificadora Nancy</h3>
-              <p>Tradición y calidad en cada pan desde 1995.</p>
-              <p>📅 Horario: Lunes a Sábado 6:00 AM - 8:00 PM</p>
-            </Col>
-            <Col md={4}>
-              <h3>Contacto</h3>
-              <p>📞 Teléfono: +591 78945612</p>
-              <p>📧 Email: info@panificadoranancy.com</p>
-            </Col>
-            <Col md={4}>
-              <h3>Síguenos</h3>
-              <div className="d-flex gap-3">
-                <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="40" />
-                <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="40" />
-                <img src="https://cdn-icons-png.flaticon.com/512/733/733585.png" alt="WhatsApp" width="40" />
-              </div>
-            </Col>
-          </Row>
-        </Container>
-      </footer>
+      <Footer />
     </>
   );
 };

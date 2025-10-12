@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 export default function ProtectedRoute({ children, roles = [] }) {
   const { user, loading } = useAuth();
 
+  console.log('[ProtectedRoute] Estado:', { user, loading, roles });
+
   if (loading) {
     return (
       <div className="min-vh-100 d-flex align-items-center justify-content-center">
@@ -16,11 +18,13 @@ export default function ProtectedRoute({ children, roles = [] }) {
   }
 
   if (!user) {
+    console.log('[ProtectedRoute] No hay usuario, redirigiendo a /login');
     return <Navigate to="/login" replace />;
   }
 
   if (roles.length > 0) {
     const hasRequiredRole = user.roles?.some(role => roles.includes(role.name));
+    console.log('[ProtectedRoute] Verificando roles:', { userRoles: user.roles, requiredRoles: roles, hasRequiredRole });
     if (!hasRequiredRole) {
       return (
         <div className="min-vh-100 d-flex align-items-center justify-content-center">
@@ -37,6 +41,7 @@ export default function ProtectedRoute({ children, roles = [] }) {
     }
   }
 
+  console.log('[ProtectedRoute] Acceso concedido, renderizando children');
   return children;
 }
 

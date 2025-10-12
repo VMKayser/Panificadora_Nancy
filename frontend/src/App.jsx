@@ -12,12 +12,21 @@ import PedidoConfirmado from './pages/PedidoConfirmado';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminPanel from './pages/AdminPanel';
+import VendedorPanel from './pages/VendedorPanel';
+import Nosotros from './pages/Nosotros';
+import Contacto from './pages/Contacto';
+import UsersList from './pages/Admin/UsersList';
+import MisVentas from './pages/Vendedor/MisVentas';
 
 function App() {
+  // Use Vite's BASE_URL so React Router works correctly when the app is served under /app/
+  const rawBase = import.meta.env.BASE_URL || '/';
+  const basename = rawBase.replace(/\/$/, '') || '/';
+
   return (
-    <AuthProvider>
-      <CartProvider>
-        <Router>
+    <CartProvider>
+      <Router basename={basename}>
+        <AuthProvider>
           <Header />
           <Routes>
             {/* Rutas públicas */}
@@ -39,6 +48,36 @@ function App() {
               } 
             />
             
+            {/* Gestión de Usuarios - Solo Admin */}
+            <Route 
+              path="/admin/usuarios" 
+              element={
+                <ProtectedRoute roles={['admin']}>
+                  <UsersList />
+                </ProtectedRoute>
+              } 
+            />
+            
+            {/* Panel Vendedor - Punto de Venta (POS) */}
+            <Route 
+              path="/vendedor" 
+              element={
+                <ProtectedRoute roles={['admin', 'vendedor']}>
+                  <VendedorPanel />
+                </ProtectedRoute>
+              } 
+            />
+            
+            {/* Mis Ventas - Vendedor */}
+            <Route 
+              path="/vendedor/ventas" 
+              element={
+                <ProtectedRoute roles={['admin', 'vendedor']}>
+                  <MisVentas />
+                </ProtectedRoute>
+              } 
+            />
+            
             {/* Rutas de cliente */}
             <Route 
               path="/perfil" 
@@ -56,8 +95,8 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-            <Route path="/contacto" element={<div style={{ textAlign: 'center', padding: '50px' }}>Contacto (próximamente)</div>} />
-            <Route path="/nosotros" element={<div style={{ textAlign: 'center', padding: '50px' }}>Nosotros (próximamente)</div>} />
+            <Route path="/contacto" element={<Contacto />} />
+            <Route path="/nosotros" element={<Nosotros />} />
           </Routes>
           <ToastContainer
             position="bottom-right"
@@ -71,9 +110,9 @@ function App() {
             pauseOnHover
             theme="light"
           />
-        </Router>
-      </CartProvider>
-    </AuthProvider>
+        </AuthProvider>
+      </Router>
+    </CartProvider>
   );
 }
 

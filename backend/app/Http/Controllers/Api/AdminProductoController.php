@@ -316,7 +316,15 @@ class AdminProductoController extends Controller
             $path = $image->storeAs('productos', $filename, 'public');
 
             // URL completa accesible desde el frontend
-            $url = url(Storage::url($path));
+            // Usar config('app.url') para asegurar la URL correcta
+            $url = config('app.url') . Storage::url($path);
+            
+            Log::info('Imagen subida', [
+                'filename' => $filename,
+                'path' => $path,
+                'url' => $url,
+                'app_url' => config('app.url')
+            ]);
 
             return response()->json([
                 'message' => 'Imagen subida exitosamente',
@@ -326,6 +334,11 @@ class AdminProductoController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Error al subir imagen', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'message' => 'Error al subir imagen',
                 'error' => $e->getMessage()

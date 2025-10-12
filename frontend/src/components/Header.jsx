@@ -4,6 +4,7 @@ import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
+import { Home, ShoppingCart, Phone, Info, DollarSign, Settings, User, Edit, Package as PackageIcon, LogOut, LogIn } from 'lucide-react';
 import CartDrawer from './CartDrawer';
 
 const Header = () => {
@@ -28,12 +29,11 @@ const Header = () => {
   return (
     <Navbar bg="light" expand="lg" sticky="top" className="shadow-sm">
       <Container>
-        {/* Logo */}
+        {/* Logo: usar archivo local en public/images/logo.jpg */}
         <Navbar.Brand as={Link} to="/" className="d-flex align-items-center">
           <img
-            src="https://www.oep.org.bo/logos/EscudoBolivia_300x300.webp"
-            height="50"
-            className="d-inline-block align-top"
+            src={`${import.meta.env.BASE_URL}images/logo.jpg`}
+            className="site-logo d-inline-block align-top"
             alt="Panificadora Nancy"
           />
           <span className="ms-2 fw-bold" style={{ color: 'rgb(145, 109, 74)' }}>
@@ -76,6 +76,13 @@ const Header = () => {
 
             {/* Drawer del carrito */}
             <CartDrawer show={showCart} onHide={handleCloseCart} />
+
+            {/* Panel de Vendedor - Solo para vendedor y admin */}
+            {(isAdmin || isVendedor) && (
+              <Nav.Link as={Link} to="/vendedor" className="mx-2">
+                💰 Punto de Venta
+              </Nav.Link>
+            )}
 
             {/* Admin Button - Solo para admin y vendedor */}
             {(isAdmin || isVendedor) && (

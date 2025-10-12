@@ -2,6 +2,7 @@ import { useState } from 'react';
 import PropTypes from 'prop-types';
 import { useCart } from '../context/CartContext';
 import ProductModal from './ProductModal';
+import { Package, Clock, Plus } from 'lucide-react';
 import styles from './Carousel.module.css';
 
 function Carousel({ productos = [], speed = 40 }) {
@@ -23,8 +24,8 @@ function Carousel({ productos = [], speed = 40 }) {
     setShowModal(true);
   };
 
-  // Solo 2 copias como requiere el usuario
-  const productosExtendidos = [...productos, ...productos];
+  // Triplicar los productos para carrusel verdaderamente infinito y sin cortes
+  const productosExtendidos = [...productos, ...productos, ...productos];
 
   return (
     <>
@@ -49,8 +50,8 @@ function Carousel({ productos = [], speed = 40 }) {
             >
               <img
                 src={
-                  (producto.imagenes && producto.imagenes.length > 0 && (producto.imagenes[0].url_imagen || producto.imagenes[0].url))
-                    ? (producto.imagenes[0].url_imagen || producto.imagenes[0].url)
+                  (producto.imagenes && producto.imagenes.length > 0)
+                    ? (producto.imagenes[0].url_imagen_completa || producto.imagenes[0].url_imagen || producto.imagenes[0].url)
                     : 'https://picsum.photos/300/200'
                 }
                 alt={producto.nombre}
@@ -59,7 +60,10 @@ function Carousel({ productos = [], speed = 40 }) {
               <div className={styles.cardBody}>
                 <h5 className={styles.title}>{producto.nombre}</h5>
                 {producto.presentacion && (
-                  <p className={styles.presentation}>📦 {producto.presentacion}</p>
+                  <p className={styles.presentation}>
+                    <Package size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                    {producto.presentacion}
+                  </p>
                 )}
               <p className={styles.text}>{descripcionMostrar}</p>
               <div className={styles.price}>
@@ -71,12 +75,13 @@ function Carousel({ productos = [], speed = 40 }) {
                   onClick={(e) => handleAddToCart(e, producto)}
                   title="Agregar al carrito"
                 >
-                  +
+                  <Plus size={20} />
                 </button>
               </div>
               {producto.requiere_tiempo_anticipacion && (
                 <div className={styles.badge}>
-                  ⏰ *Pedido con {producto.tiempo_anticipacion || 24} {producto.unidad_tiempo || 'horas'} de anticipación
+                  <Clock size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                  *Pedido con {producto.tiempo_anticipacion || 24} {producto.unidad_tiempo || 'horas'} de anticipación
                 </div>
               )}
             </div>

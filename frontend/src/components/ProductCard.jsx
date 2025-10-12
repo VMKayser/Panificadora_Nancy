@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card } from 'react-bootstrap';
 import { useCart } from '../context/CartContext';
 import { toast } from 'react-toastify';
+import { Package, Clock, Plus } from 'lucide-react';
 import ProductModal from './ProductModal';
 import styles from './ProductCard.module.css';
 
@@ -24,7 +25,7 @@ const ProductCard = ({ producto }) => {
 
   // Usar la primera imagen o una por defecto
   const imagen = producto.imagenes && producto.imagenes.length > 0
-    ? producto.imagenes[0].url_imagen
+    ? (producto.imagenes[0].url_imagen_completa || producto.imagenes[0].url_imagen)
     : 'https://picsum.photos/300/200';
 
   // Usar descripción corta, o truncar la descripción larga
@@ -44,7 +45,10 @@ const ProductCard = ({ producto }) => {
         <div className={styles.cardBody}>
           <h5 className={styles.title}>{producto.nombre}</h5>
           {producto.presentacion && (
-            <p className={styles.presentation}>📦 {producto.presentacion}</p>
+            <p className={styles.presentation}>
+              <Package size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+              {producto.presentacion}
+            </p>
           )}
           <p className={styles.text}>{descripcionMostrar}</p>
           
@@ -57,13 +61,14 @@ const ProductCard = ({ producto }) => {
               onClick={handleAddToCart}
               title="Agregar al carrito"
             >
-              +
+              <Plus size={20} />
             </button>
           </div>
           
           {producto.requiere_tiempo_anticipacion && (
             <div className={styles.badge}>
-              ⏰ *Pedido con {producto.tiempo_anticipacion || 24} {producto.unidad_tiempo || 'horas'} de anticipación
+              <Clock size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+              *Pedido con {producto.tiempo_anticipacion || 24} {producto.unidad_tiempo || 'horas'} de anticipación
             </div>
           )}
         </div>

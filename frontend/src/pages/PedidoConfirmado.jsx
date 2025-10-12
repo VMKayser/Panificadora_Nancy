@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useSEO } from '../hooks/useSEO';
 import { Container, Card, Button, ListGroup } from 'react-bootstrap';
 
 const PedidoConfirmado = () => {
@@ -10,6 +11,13 @@ const PedidoConfirmado = () => {
     navigate('/');
     return null;
   }
+
+  // SEO: no indexar página de confirmación de pedido
+  useSEO({
+    title: 'Pedido Confirmado - Panificadora Nancy',
+    description: `Pedido ${pedido.numero_pedido} confirmado. Gracias por tu compra.`,
+    noindex: true
+  });
 
   return (
     <Container className="py-5">

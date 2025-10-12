@@ -32,7 +32,7 @@ const CartDrawer = ({ show, onHide }) => {
                 <ListGroup.Item key={item.id} className="mb-2">
                   <div className="d-flex align-items-center">
                     <Image
-                      src={item.imagenes && item.imagenes.length > 0 ? (item.imagenes[0].url_imagen || item.imagenes[0].url) : 'https://picsum.photos/80/80'}
+                      src={item.imagenes && item.imagenes.length > 0 ? (item.imagenes[0].url_imagen_completa || item.imagenes[0].url_imagen || item.imagenes[0].url) : 'https://picsum.photos/80/80'}
                       alt={item.nombre}
                       rounded
                       style={{ width: 64, height: 64, objectFit: 'cover' }}

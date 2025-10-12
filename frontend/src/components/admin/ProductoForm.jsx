@@ -59,7 +59,12 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
       });
 
       if (producto.imagenes && producto.imagenes.length > 0) {
-        const urls = producto.imagenes.map(img => img.url_imagen);
+        const urls = producto.imagenes.map(img => {
+          // Priorizar url_imagen_completa, luego url_imagen
+          const url = img.url_imagen_completa || img.url_imagen;
+          // Si la URL no comienza con http, agregar el prefijo del backend
+          return url.startsWith('http') ? url : `http://localhost${url}`;
+        });
         setImagenes(urls);
         setImagenesPreview(urls);
       }
@@ -550,6 +555,10 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
                       src={url} 
                       rounded 
                       style={{ width: '100%', height: '150px', objectFit: 'cover' }}
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = 'https://via.placeholder.com/150?text=Error+al+cargar';
+                      }}
                     />
                     {index === 0 && (
                       <Badge 

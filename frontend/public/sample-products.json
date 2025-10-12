@@ -1,0 +1,67 @@
+[
+  {
+    "id": 1,
+    "nombre": "Pan Frances",
+    "descripcion": "Pan francés tradicional, corteza crujiente y miga suave.",
+    "descripcion_corta": "Pan francés recién horneado",
+    "presentacion": "Unidad",
+    "precio_minorista": 5.50,
+    "precio": 5.50,
+    "stock": 120,
+    "rating": 4.7,
+    "imagenes": [{ "url_imagen": "/og-image.jpg" }],
+    "categoria": { "nombre": "Panes", "url": "panes" }
+  },
+  {
+    "id": 2,
+    "nombre": "Bizcocho de Vainilla",
+    "descripcion": "Bizcocho suave con sabor a vainilla, perfecto para desayunos.",
+    "descripcion_corta": "Bizcocho casero de vainilla",
+    "presentacion": "Porción",
+    "precio_minorista": 3.00,
+    "precio": 3.00,
+    "stock": 60,
+    "rating": 4.5,
+    "imagenes": [{ "url_imagen": "/og-image.jpg" }],
+    "categoria": { "nombre": "Bizcochos", "url": "bizcochos" }
+  },
+  {
+    "id": 3,
+    "nombre": "Empanada de Carne",
+    "descripcion": "Empanada rellena de carne sazonada y verduras.",
+    "descripcion_corta": "Empanada tradicional",
+    "presentacion": "Unidad",
+    "precio_minorista": 2.75,
+    "precio": 2.75,
+    "stock": 200,
+    "rating": 4.6,
+    "imagenes": [{ "url_imagen": "/og-image.jpg" }],
+    "categoria": { "nombre": "Empanadas", "url": "empanadas" }
+  },
+  {
+    "id": 4,
+    "nombre": "Torta de Chocolate",
+    "descripcion": "Torta rica y húmeda de chocolate, para celebraciones.",
+    "descripcion_corta": "Torta chocolate 20cm",
+    "presentacion": "20cm",
+    "precio_minorista": 120.00,
+    "precio": 120.00,
+    "stock": 8,
+    "rating": 4.9,
+    "imagenes": [{ "url_imagen": "/og-image.jpg" }],
+    "categoria": { "nombre": "Tortas", "url": "tortas" }
+  },
+  {
+    "id": 5,
+    "nombre": "T'anta Wawa (unidad)",
+    "descripcion": "Pan tradicional de la festividad, relleno y decorado.",
+    "descripcion_corta": "T'anta wawa tradicional",
+    "presentacion": "Unidad",
+    "precio_minorista": 8.50,
+    "precio": 8.50,
+    "stock": 40,
+    "rating": 4.8,
+    "imagenes": [{ "url_imagen": "/og-image.jpg" }],
+    "categoria": { "nombre": "Tradicionales", "url": "temporada" }
+  }
+]

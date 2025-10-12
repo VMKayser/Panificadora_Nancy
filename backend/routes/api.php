@@ -9,6 +9,10 @@ use App\Http\Controllers\Api\AdminPedidoController;
 use App\Http\Controllers\Api\CategoriaController;
 use App\Http\Controllers\Api\ClienteController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\MateriaPrimaController;
+use App\Http\Controllers\RecetaController;
+use App\Http\Controllers\ProduccionController;
+use App\Http\Controllers\InventarioController;
 
 // ============================================
 // RUTAS DE AUTENTICACIÓN (Públicas con Rate Limiting)
@@ -83,4 +87,165 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,vendedor'])->gro
     Route::put('/clientes/{id}', [ClienteController::class, 'update']);
     Route::delete('/clientes/{id}', [ClienteController::class, 'destroy']);
     Route::post('/clientes/{id}/toggle-active', [ClienteController::class, 'toggleActive']);
+
+    // Gestión de panaderos
+    Route::get('/panaderos', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'index']);
+    Route::post('/panaderos', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'store']);
+    Route::get('/panaderos/{id}', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'show']);
+    Route::put('/panaderos/{id}', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'update']);
+    Route::delete('/panaderos/{id}', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'destroy']);
+
+    // ============================================
+    // GESTIÓN DE EMPLEADOS (NUEVO)
+    // ============================================
+    
+    // Panaderos - CRUD Completo
+    Route::prefix('empleados/panaderos')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\PanaderoController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Admin\PanaderoController::class, 'store']);
+        Route::get('/estadisticas', [\App\Http\Controllers\Admin\PanaderoController::class, 'estadisticas']);
+        Route::get('/{id}', [\App\Http\Controllers\Admin\PanaderoController::class, 'show']);
+        Route::put('/{id}', [\App\Http\Controllers\Admin\PanaderoController::class, 'update']);
+        Route::delete('/{id}', [\App\Http\Controllers\Admin\PanaderoController::class, 'destroy']);
+        Route::post('/{id}/toggle-activo', [\App\Http\Controllers\Admin\PanaderoController::class, 'toggleActivo']);
+    });
+
+    // Vendedores - CRUD Completo
+    Route::prefix('empleados/vendedores')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\VendedorController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Admin\VendedorController::class, 'store']);
+        Route::get('/estadisticas', [\App\Http\Controllers\Admin\VendedorController::class, 'estadisticas']);
+        Route::get('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'show']);
+        Route::put('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'update']);
+        Route::delete('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'destroy']);
+        Route::post('/{id}/cambiar-estado', [\App\Http\Controllers\Admin\VendedorController::class, 'cambiarEstado']);
+        Route::get('/{id}/reporte-ventas', [\App\Http\Controllers\Admin\VendedorController::class, 'reporteVentas']);
+    });
+
+    // Configuraciones del Sistema
+    Route::prefix('configuraciones')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'index']);
+        Route::get('/{clave}', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'show']);
+        Route::post('/', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'store']);
+        Route::put('/actualizar-multiples', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'actualizarMultiples']);
+        Route::delete('/{clave}', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'destroy']);
+        Route::post('/inicializar-defecto', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'inicializarDefecto']);
+        Route::get('/{clave}/valor', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'getValor']);
+    });
+
+    // Gestión de categorías
+    Route::get('/categorias', [\App\Http\Controllers\Api\AdminCategoriaController::class, 'index']);
+    Route::post('/categorias', [\App\Http\Controllers\Api\AdminCategoriaController::class, 'store']);
+    Route::get('/categorias/{id}', [\App\Http\Controllers\Api\AdminCategoriaController::class, 'show']);
+    Route::put('/categorias/{id}', [\App\Http\Controllers\Api\AdminCategoriaController::class, 'update']);
+    Route::delete('/categorias/{id}', [\App\Http\Controllers\Api\AdminCategoriaController::class, 'destroy']);
+    Route::post('/categorias/{id}/toggle-active', [\App\Http\Controllers\Api\AdminCategoriaController::class, 'toggleActive']);
+    Route::post('/categorias/reorder', [\App\Http\Controllers\Api\AdminCategoriaController::class, 'reorder']);
 });
+
+// ============================================
+// RUTAS DE SISTEMA DE INVENTARIO
+// ============================================
+Route::prefix('inventario')->middleware(['auth:sanctum'])->group(function () {
+    
+    // ===== MATERIAS PRIMAS =====
+    Route::prefix('materias-primas')->group(function () {
+        Route::get('/', [MateriaPrimaController::class, 'index']); // Listar todas
+        Route::post('/', [MateriaPrimaController::class, 'store']); // Crear nueva
+        Route::get('/stock-bajo', [MateriaPrimaController::class, 'stockBajo']); // Alertas de stock bajo
+        Route::get('/{id}', [MateriaPrimaController::class, 'show']); // Ver una específica
+        Route::put('/{id}', [MateriaPrimaController::class, 'update']); // Actualizar
+        Route::delete('/{id}', [MateriaPrimaController::class, 'destroy']); // Eliminar
+        Route::post('/{id}/compra', [MateriaPrimaController::class, 'registrarCompra']); // Registrar compra
+        Route::post('/{id}/ajuste', [MateriaPrimaController::class, 'ajustarStock']); // Ajuste manual
+        Route::get('/{id}/movimientos', [MateriaPrimaController::class, 'movimientos']); // Historial
+    });
+
+    // ===== RECETAS =====
+    Route::prefix('recetas')->group(function () {
+        Route::get('/', [RecetaController::class, 'index']); // Listar todas
+        Route::post('/', [RecetaController::class, 'store']); // Crear nueva
+        Route::get('/{id}', [RecetaController::class, 'show']); // Ver una específica
+        Route::put('/{id}', [RecetaController::class, 'update']); // Actualizar
+        Route::delete('/{id}', [RecetaController::class, 'destroy']); // Eliminar
+        Route::get('/{id}/verificar-stock', [RecetaController::class, 'verificarStock']); // Verificar disponibilidad
+        Route::post('/{id}/recalcular-costos', [RecetaController::class, 'recalcularCostos']); // Recalcular costos
+        Route::post('/{id}/duplicar', [RecetaController::class, 'duplicar']); // Duplicar receta
+    });
+
+    // ===== PRODUCCIÓN =====
+    Route::prefix('producciones')->group(function () {
+        Route::get('/', [ProduccionController::class, 'index']); // Listar todas
+        Route::post('/', [ProduccionController::class, 'store']); // Registrar producción
+        Route::get('/reporte-diario', [ProduccionController::class, 'reporteDiario']); // Reporte del día
+        Route::get('/reporte-periodo', [ProduccionController::class, 'reportePeriodo']); // Reporte por período
+        Route::get('/analisis-diferencias', [ProduccionController::class, 'analisisDiferencias']); // Análisis mermas
+        Route::get('/{id}', [ProduccionController::class, 'show']); // Ver producción
+        Route::put('/{id}', [ProduccionController::class, 'update']); // Actualizar
+        Route::post('/{id}/cancelar', [ProduccionController::class, 'cancelar']); // Cancelar producción
+    });
+
+    // ===== INVENTARIO PRODUCTOS FINALES =====
+    Route::get('/dashboard', [InventarioController::class, 'dashboard']); // Dashboard general
+    Route::get('/productos-finales', [InventarioController::class, 'productosFinales']); // Stock productos
+    Route::get('/movimientos-productos', [InventarioController::class, 'movimientosProductos']); // Movimientos
+    Route::post('/productos/{productoId}/ajustar', [InventarioController::class, 'ajustarInventarioProducto']); // Ajuste
+    Route::get('/reporte-rotacion', [InventarioController::class, 'reporteRotacion']); // Rotación
+    Route::get('/reporte-mermas', [InventarioController::class, 'reporteMermas']); // Mermas
+    Route::get('/kardex/{productoId}', [InventarioController::class, 'kardex']); // Kardex
+    Route::post('/productos/{productoId}/stock-minimo', [InventarioController::class, 'configurarStockMinimo']); // Config
+});
+
+// ============================================
+// RUTAS DE GESTIÓN DE EMPLEADOS Y USUARIOS (Admin)
+// ============================================
+Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin'])->group(function () {
+    
+    // ===== GESTIÓN DE USUARIOS =====
+    Route::prefix('usuarios')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\UserController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Admin\UserController::class, 'store']);
+        Route::get('/estadisticas', [\App\Http\Controllers\Admin\UserController::class, 'estadisticas']);
+        Route::get('/disponibles-vendedor', [\App\Http\Controllers\Admin\UserController::class, 'usuariosDisponiblesVendedor']);
+        Route::get('/{id}', [\App\Http\Controllers\Admin\UserController::class, 'show']);
+        Route::put('/{id}', [\App\Http\Controllers\Admin\UserController::class, 'update']);
+        Route::delete('/{id}', [\App\Http\Controllers\Admin\UserController::class, 'destroy']);
+        Route::post('/{id}/cambiar-rol', [\App\Http\Controllers\Admin\UserController::class, 'cambiarRol']);
+    });
+
+    // ===== GESTIÓN DE PANADEROS =====
+    Route::prefix('empleados/panaderos')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\PanaderoController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Admin\PanaderoController::class, 'store']);
+        Route::get('/estadisticas', [\App\Http\Controllers\Admin\PanaderoController::class, 'estadisticas']);
+        Route::get('/{id}', [\App\Http\Controllers\Admin\PanaderoController::class, 'show']);
+        Route::put('/{id}', [\App\Http\Controllers\Admin\PanaderoController::class, 'update']);
+        Route::delete('/{id}', [\App\Http\Controllers\Admin\PanaderoController::class, 'destroy']);
+        Route::post('/{id}/toggle-activo', [\App\Http\Controllers\Admin\PanaderoController::class, 'toggleActivo']);
+    });
+
+    // ===== GESTIÓN DE VENDEDORES =====
+    Route::prefix('empleados/vendedores')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\VendedorController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Admin\VendedorController::class, 'store']);
+        Route::get('/estadisticas', [\App\Http\Controllers\Admin\VendedorController::class, 'estadisticas']);
+        Route::get('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'show']);
+        Route::put('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'update']);
+        Route::delete('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'destroy']);
+        Route::post('/{id}/cambiar-estado', [\App\Http\Controllers\Admin\VendedorController::class, 'cambiarEstado']);
+        Route::get('/{id}/reporte-ventas', [\App\Http\Controllers\Admin\VendedorController::class, 'reporteVentas']);
+    });
+
+    // ===== CONFIGURACIÓN DEL SISTEMA =====
+    Route::prefix('configuraciones')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'store']);
+        Route::post('/actualizar-multiples', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'actualizarMultiples']);
+        Route::post('/inicializar-defecto', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'inicializarDefecto']);
+        Route::get('/{clave}', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'show']);
+        Route::delete('/{clave}', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'destroy']);
+        Route::get('/{clave}/valor', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'getValor']);
+    });
+});
+
+

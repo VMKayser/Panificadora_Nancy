@@ -39,6 +39,11 @@ body {
   padding-right: 15px;
 }
 
+/* Ensure table headers are readable (black text) across admin tables */
+.table thead th {
+  color: #000 !important;
+}
+
 /* Personalización de colores de Bootstrap para usar paleta café */
 .btn-primary {
   background-color: var(--color-primary) !important;
@@ -76,3 +81,33 @@ body {
 
 /* Asegurar que elementos principales ocupen 100% */
 /* presentacion moved to Presentacion.module.css */
+
+/* Logo del sitio - modernizado y redondeado */
+.site-logo {
+  width: 56px; /* tamaño base, se adapta en responsive */
+  height: 56px;
+  object-fit: cover;
+  border-radius: 14px; /* redondeado suavemente */
+  box-shadow: 0 6px 18px rgba(45, 35, 20, 0.12);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+  border: 2px solid rgba(255,255,255,0.6);
+}
+
+.site-logo:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 10px 30px rgba(45, 35, 20, 0.18);
+}
+
+/* Ajuste del texto cerca del logo para mayor contraste */
+.navbar .fw-bold {
+  color: var(--color-text-primary) !important;
+  font-size: 1.05rem;
+}
+
+@media (max-width: 768px) {
+  .site-logo {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+}

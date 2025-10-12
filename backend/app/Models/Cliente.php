@@ -31,6 +31,12 @@ class Cliente extends Model
         'activo' => 'boolean',
     ];
 
+    // Relación con usuario
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'email', 'email');
+    }
+
     // Relación con pedidos
     public function pedidos()
     {

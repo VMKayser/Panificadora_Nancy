@@ -302,8 +302,8 @@ const PedidosPanel = () => {
                       </td>
                       <td>
                         <div>
-                          <div>{pedido.nombre_cliente} {pedido.apellido_cliente}</div>
-                          <small className="text-muted">{pedido.email_cliente}</small>
+                          <div>{pedido.cliente_nombre} {pedido.cliente_apellido}</div>
+                          <small className="text-muted">{pedido.cliente_email}</small>
                         </div>
                       </td>
                       <td>

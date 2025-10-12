@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Container, Row, Col, Button, ListGroup, Card, Image, Badge } from 'react-bootstrap';
 import { useCart } from '../context/CartContext';
+import { useSEO } from '../hooks/useSEO';
 
 const Cart = () => {
   const navigate = useNavigate();
@@ -15,6 +16,12 @@ const Cart = () => {
   };
 
   if (cart.length === 0) {
+    // SEO: marcar como noindex cuando el carrito está vacío (no queremos indexar carritos individuales)
+    useSEO({
+      title: 'Carrito - Panificadora Nancy',
+      description: 'Revisa tu carrito y completa tu pedido. Delivery rápido y productos frescos garantizados.',
+      noindex: true
+    });
     return (
       <Container className="text-center py-5">
         <div className="mb-4">
@@ -32,6 +39,12 @@ const Cart = () => {
   }
 
   return (
+    // SEO: noindex para la página de carrito
+    useSEO({
+      title: `Carrito - Panificadora Nancy (${getTotalItems()} productos)`,
+      description: 'Revisa tu carrito y completa tu pedido. Delivery rápido y productos frescos garantizados.',
+      noindex: true
+    }),
     <Container className="py-5">
       <h1 className="mb-4" style={{ color: '#000' }}>
         🛒 Tu Carrito ({getTotalItems()} productos)
@@ -48,7 +61,7 @@ const Cart = () => {
                     <Image 
                       src={
                         item.imagenes && item.imagenes.length > 0
-                          ? item.imagenes[0].url_imagen
+                          ? (item.imagenes[0].url_imagen_completa || item.imagenes[0].url_imagen)
                           : 'https://picsum.photos/100/100'
                       }
                       alt={item.nombre}

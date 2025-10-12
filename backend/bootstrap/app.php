@@ -15,6 +15,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => \App\Http\Middleware\CheckRole::class,
         ]);
+        
+        // API: devolver JSON 401 en vez de redirect
+        $middleware->redirectGuestsTo(fn($request) => 
+            $request->expectsJson() ? null : route('login', [], false)
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

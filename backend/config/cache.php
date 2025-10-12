@@ -15,7 +15,9 @@ return [
     |
     */
 
-    'default' => env('CACHE_STORE', 'database'),
+    // Default cache store. Controlled via CACHE_STORE env per environment.
+    // Use Redis as the production default for best performance. Local setups can override with .env.
+    'default' => env('CACHE_STORE', 'redis'),
 
     /*
     |--------------------------------------------------------------------------

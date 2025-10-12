@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="estilosPanadero.css">
+    <script src="scripts.js" defer></script>
+</head>
+<body>
+    <div class="panadero">
+        <div class="produccion">
+            <h1>Administrar Panel Panadero</h1>
+        </div>
+        <a class="gestionar">Gestiona tu produccion</a>
+    </div>
+    <div class="producciones" >
+        <button onclick="cargarContenidoPanadero('diariaAdmin.html')">Producciones Diarias</button>
+        <button onclick="cargarContenidoPanadero('mesAdmin.html')">Total del Mes Acumulado</button>
+    </div>
+    <div id="informacion">
+
+    </div>
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="cerrar" onclick="cerrarModalPanadero()">&times;</span>
+            <div id="modal-body-panadero"></div>
+        </div>
+</body>
+</html>
