@@ -26,14 +26,32 @@ const ProductModal = ({ show, onHide, producto }) => {
 
   const calcularTotalExtras = () => {
     if (!producto.extras_disponibles) return 0;
-    
+
     return Object.entries(extrasSeleccionados).reduce((total, [index, docenas]) => {
       const extra = producto.extras_disponibles[parseInt(index)];
-      return total + (extra.precio_unitario * extra.cantidad_minima * docenas);
+      if (!extra) return total;
+
+      // Support multiple shapes: precio_unitario or precio
+      const precioUnitario = parseFloat(extra.precio_unitario ?? extra.precio ?? 0) || 0;
+      const cantidadMinima = parseFloat(extra.cantidad_minima ?? extra.cantidad ?? 1) || 1;
+      const unidades = parseInt(docenas) || 0;
+
+      return total + (precioUnitario * cantidadMinima * unidades);
     }, 0);
   };
 
   const handleAgregarAlCarrito = () => {
+    // Comprobar stock del producto principal
+    const prodStock = producto?.inventario?.stock_actual ?? producto?.stock_actual ?? producto?.stock ?? null;
+    if (prodStock !== null && Number(prodStock) <= 0) {
+      toast.error('Producto sin stock');
+      return;
+    }
+    if (prodStock !== null && cantidad > Number(prodStock)) {
+      toast.error(`Cantidad solicitada supera stock disponible (${prodStock})`);
+      return;
+    }
+
     // Agregar producto principal
     addToCart(producto, cantidad);
 
@@ -42,12 +60,29 @@ const ProductModal = ({ show, onHide, producto }) => {
       Object.entries(extrasSeleccionados).forEach(([index, docenas]) => {
         if (docenas > 0) {
           const extra = producto.extras_disponibles[parseInt(index)];
+          if (!extra) return;
+
+            const extraStock = extra?.stock_actual ?? extra?.stock ?? null;
+            if (extraStock !== null && Number(extraStock) <= 0) {
+              toast.error(`${extra.nombre} sin stock`);
+              return;
+            }
+
+            if (extraStock !== null && docenas > Number(extraStock)) {
+              toast.error(`Cantidad de extra supera stock (${extraStock})`);
+              return;
+            }
+
+          const precioUnitario = parseFloat(extra.precio_unitario ?? extra.precio ?? 0) || 0;
+          const cantidadMinima = parseFloat(extra.cantidad_minima ?? extra.cantidad ?? 1) || 1;
+          const unidadExtra = extra.unidad ?? extra.unidad_medida ?? 'unidad';
+
           const productoExtra = {
             ...producto,
             id: `${producto.id}-extra-${index}`,
             nombre: `${producto.nombre} - ${extra.nombre}`,
-            precio_minorista: extra.precio_unitario,
-            presentacion: `${extra.cantidad_minima} ${extra.unidad}`,
+            precio_minorista: precioUnitario,
+            presentacion: `${cantidadMinima} ${unidadExtra}`,
             es_extra: true,
             producto_padre_id: producto.id
           };
@@ -70,7 +105,8 @@ const ProductModal = ({ show, onHide, producto }) => {
   };
 
   const totalExtras = calcularTotalExtras();
-  const totalGeneral = (parseFloat(producto.precio_minorista) * cantidad) + totalExtras;
+  const basePrice = parseFloat(producto.precio_minorista) || 0;
+  const totalGeneral = (basePrice * (parseInt(cantidad) || 0)) + totalExtras;
 
   return (
     <Modal show={show} onHide={onHide} size="lg" centered>
@@ -87,7 +123,7 @@ const ProductModal = ({ show, onHide, producto }) => {
             />
           </div>
           <div className="col-md-6">
-            {producto.presentacion && (
+            {producto.presentacion && String(producto.presentacion).trim() !== '' && (
               <div style={{
                 backgroundColor: '#f5f1ed',
                 padding: '8px 12px',
@@ -184,7 +220,7 @@ const ProductModal = ({ show, onHide, producto }) => {
                             <strong>{extra.nombre}</strong>
                             <div style={{ fontSize: '13px', color: '#666' }}>{extra.descripcion}</div>
                             <div style={{ fontSize: '14px', color: '#8b6f47', fontWeight: 'bold' }}>
-                              Bs {(extra.precio_unitario || 0).toFixed(2)} x {extra.cantidad_minima || 1} {extra.unidad || 'unidad'}
+                              Bs {parseFloat(extra.precio_unitario ?? extra.precio ?? 0).toFixed(2)} x {extra.cantidad_minima || 1} {extra.unidad || 'unidad'}
                             </div>
                           </div>
                         }
@@ -210,8 +246,8 @@ const ProductModal = ({ show, onHide, producto }) => {
                           >
                             +
                           </Button>
-                          <span style={{ fontSize: '14px', color: '#8b6f47', marginLeft: '8px' }}>
-                            = Bs {((extra.precio_unitario || 0) * (extra.cantidad_minima || 1) * extrasSeleccionados[index]).toFixed(2)}
+                            <span style={{ fontSize: '14px', color: '#8b6f47', marginLeft: '8px' }}>
+                            = Bs {( (parseFloat(extra.precio_unitario ?? extra.precio ?? 0) || 0) * (parseFloat(extra.cantidad_minima ?? extra.cantidad ?? 1) || 1) * (parseInt(extrasSeleccionados[index]) || 0) ).toFixed(2)}
                           </span>
                         </div>
                       )}
@@ -286,6 +322,7 @@ ProductModal.propTypes = {
       nombre: PropTypes.string,
       descripcion: PropTypes.string,
       precio_unitario: PropTypes.number,
+      precio: PropTypes.number,
       unidad: PropTypes.string,
       cantidad_minima: PropTypes.number,
     })),

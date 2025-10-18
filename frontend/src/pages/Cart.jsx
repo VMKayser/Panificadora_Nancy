@@ -38,6 +38,28 @@ const Cart = () => {
     );
   }
 
+  // Group parents and extras
+  const parents = cart.filter(i => !i.es_extra);
+  const extras = cart.filter(i => i.es_extra);
+
+  const extrasByParent = extras.reduce((acc, ex) => {
+    const key = ex.producto_padre_id || String(ex.id).split('-extra-')[0];
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(ex);
+    return acc;
+  }, {});
+
+  const parentTotal = (parent) => {
+    const pPrice = (parent.precio !== undefined) ? parseFloat(parent.precio) : parseFloat(parent.precio_minorista || 0);
+    const pQty = parent.cantidad || 0;
+    const extrasForParent = extrasByParent[parent.id] || [];
+    const extrasTotal = extrasForParent.reduce((s, e) => {
+      const ePrice = (e.precio !== undefined) ? parseFloat(e.precio) : parseFloat(e.precio_minorista || 0);
+      return s + ((isNaN(ePrice) ? 0 : ePrice) * (e.cantidad || 0));
+    }, 0);
+    return ( (isNaN(pPrice) ? 0 : pPrice) * pQty ) + extrasTotal;
+  }
+
   return (
     // SEO: noindex para la página de carrito
     useSEO({
@@ -53,18 +75,18 @@ const Cart = () => {
       <Row>
         <Col lg={8}>
           <ListGroup>
-            {cart.map(item => (
-              <ListGroup.Item key={item.id} className="mb-3">
+            {parents.map(parent => (
+              <ListGroup.Item key={parent.id} className="mb-3">
                 <Row className="align-items-center">
                   {/* Imagen */}
                   <Col xs={3} md={2}>
                     <Image 
                       src={
-                        item.imagenes && item.imagenes.length > 0
-                          ? (item.imagenes[0].url_imagen_completa || item.imagenes[0].url_imagen)
+                        parent.imagenes && parent.imagenes.length > 0
+                          ? (parent.imagenes[0].url_imagen_completa || parent.imagenes[0].url_imagen)
                           : 'https://picsum.photos/100/100'
                       }
-                      alt={item.nombre}
+                      alt={parent.nombre}
                       rounded
                       fluid
                     />
@@ -72,9 +94,9 @@ const Cart = () => {
                   
                   {/* Información */}
                   <Col xs={9} md={4}>
-                    <h5 style={{ color: '#000' }}>{item.nombre}</h5>
+                    <h5 style={{ color: '#000' }}>{parent.nombre}</h5>
                     <p className="mb-0" style={{ color: '#666' }}>
-                      Bs {parseFloat(item.precio_minorista).toFixed(2)} c/u
+                      Bs {(parseFloat(String(parent.precio_minorista ?? parent.precio ?? 0)) || 0).toFixed(2)} c/u
                     </p>
                   </Col>
 
@@ -83,15 +105,15 @@ const Cart = () => {
                     <div className="d-flex align-items-center justify-content-center">
                       <Button
                         size="sm"
-                        onClick={() => updateQuantity(item.id, item.cantidad - 1)}
+                        onClick={() => updateQuantity(parent.id, parent.cantidad - 1)}
                         style={{ backgroundColor: 'transparent', border: 'none', color: '#000', fontSize: '20px', padding: '0 10px' }}
                       >
                         -
                       </Button>
-                      <span className="mx-3 fw-bold" style={{ color: '#000', fontSize: '18px' }}>{item.cantidad}</span>
+                      <span className="mx-3 fw-bold" style={{ color: '#000', fontSize: '18px' }}>{parent.cantidad}</span>
                       <Button
                         size="sm"
-                        onClick={() => updateQuantity(item.id, item.cantidad + 1)}
+                        onClick={() => updateQuantity(parent.id, parent.cantidad + 1)}
                         style={{ backgroundColor: 'transparent', border: 'none', color: '#000', fontSize: '20px', padding: '0 10px' }}
                       >
                         +
@@ -102,7 +124,7 @@ const Cart = () => {
                   {/* Subtotal */}
                   <Col xs={4} md={2} className="text-end mt-2 mt-md-0">
                     <h5 className="mb-0" style={{ color: '#000', fontWeight: 'bold' }}>
-                      Bs {(parseFloat(item.precio_minorista) * item.cantidad).toFixed(2)}
+                      Bs {( (parentTotal(parent)) ).toFixed(2)}
                     </h5>
                   </Col>
 
@@ -110,13 +132,30 @@ const Cart = () => {
                   <Col xs={2} md={1} className="text-end mt-2 mt-md-0">
                     <Button
                       size="sm"
-                      onClick={() => removeFromCart(item.id)}
+                      onClick={() => removeFromCart(parent.id)}
                       style={{ backgroundColor: 'transparent', border: 'none', fontSize: '18px', padding: '0' }}
                     >
                       🗑️
                     </Button>
                   </Col>
                 </Row>
+
+                {/* Extras for this parent */}
+                {(extrasByParent[parent.id] || []).map(ex => (
+                  <Row key={ex.id} className="align-items-center mt-2" style={{ marginLeft: '40px' }}>
+                    <Col xs={8} md={6}>
+                      <div style={{ color: '#555' }}>{ex.nombre || ex.producto?.nombre} <small style={{ color: '#888' }}>(extra)</small></div>
+                    </Col>
+                    <Col xs={4} md={6} className="text-end">
+                      <div className="d-flex align-items-center justify-content-end">
+                        <Button size="sm" onClick={() => updateQuantity(ex.id, ex.cantidad - 1)} style={{ backgroundColor: 'transparent', border: 'none', color: '#000' }}>-</Button>
+                        <span className="px-2" style={{ color: '#000', fontWeight: 'bold' }}>{ex.cantidad}</span>
+                        <Button size="sm" onClick={() => updateQuantity(ex.id, ex.cantidad + 1)} style={{ backgroundColor: 'transparent', border: 'none', color: '#000' }}>+</Button>
+                        <Button size="sm" onClick={() => removeFromCart(ex.id)} style={{ backgroundColor: 'transparent', border: 'none', color: '#000' }}>🗑️</Button>
+                      </div>
+                    </Col>
+                  </Row>
+                ))}
               </ListGroup.Item>
             ))}
           </ListGroup>

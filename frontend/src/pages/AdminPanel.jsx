@@ -7,6 +7,7 @@ import PedidosPanel from './admin/PedidosPanel';
 import ClientesPanel from './admin/ClientesPanel';
 import PanaderosPanel from './admin/PanaderosPanel';
 import VendedoresPanel from './admin/VendedoresPanel';
+import EmpleadoPagosPanel from './admin/EmpleadoPagosPanel';
 import InventarioPanel from './admin/InventarioPanel';
 import CategoriasPanel from './admin/CategoriasPanel';
 import MovimientosInventarioPanel from './admin/MovimientosInventarioPanel';
@@ -22,6 +23,9 @@ const AdminPanel = () => {
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [filtroActivo, setFiltroActivo] = useState('');
   const [activeTab, setActiveTab] = useState('productos');
+  const [openClienteSignal, setOpenClienteSignal] = useState(0);
+  const [pagosFilters, setPagosFilters] = useState({});
+  const [pagosOpenFor, setPagosOpenFor] = useState(null);
 
   useEffect(() => {
     // Solo cargar productos cuando la pestaña activa sea 'productos'
@@ -64,9 +68,18 @@ const AdminPanel = () => {
     setShowModal(true);
   };
 
-  const handleEditarProducto = (producto) => {
-    setProductoEditar(producto);
+  const handleEditarProducto = async (producto) => {
+    // Open modal and fetch full product from backend to ensure all fields (extras, booleans, inventario) are present
+    setProductoEditar(null);
     setShowModal(true);
+    try {
+      const full = await admin.getProducto(producto.id);
+      setProductoEditar(full);
+    } catch (error) {
+      console.error('Error al obtener producto completo:', error);
+      toast.error('No se pudo cargar el producto para editar');
+      setShowModal(false);
+    }
   };
 
   const handleEliminarProducto = async (id, nombre) => {
@@ -122,6 +135,7 @@ const AdminPanel = () => {
             {activeTab === 'inventario' && 'Controla el inventario de materias primas y productos finales'}
             {activeTab === 'categorias' && 'Organiza tus categorías de productos'}
             {activeTab === 'movimientos' && 'Registra entradas y salidas de stock'}
+            {activeTab === 'perfil' && 'Configura tu perfil y preferencias del sistema'}
           </p>
         </Col>
         {activeTab === 'productos' && (
@@ -132,6 +146,17 @@ const AdminPanel = () => {
               style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}
             >
               + Nuevo Producto
+            </Button>
+          </Col>
+        )}
+        {activeTab === 'clientes' && (
+          <Col xs="auto">
+            <Button
+              size="lg"
+              onClick={() => setOpenClienteSignal((s) => s + 1)}
+              style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}
+            >
+              + Nuevo Usuario
             </Button>
           </Col>
         )}
@@ -179,12 +204,18 @@ const AdminPanel = () => {
             ↔️ Movimientos
           </Nav.Link>
         </Nav.Item>
+        <Nav.Item>
+          <Nav.Link eventKey="pagos">
+            💸 Pagos
+          </Nav.Link>
+        </Nav.Item>
+        {/* Perfil moved to global navbar */}
       </Nav>
-
       {activeTab === 'pedidos' && <PedidosPanel />}
-      {activeTab === 'clientes' && <ClientesPanel />}
-      {activeTab === 'panaderos' && <PanaderosPanel />}
-      {activeTab === 'vendedores' && <VendedoresPanel />}
+      {activeTab === 'clientes' && <ClientesPanel externalOpenCreate={openClienteSignal} />}
+      {activeTab === 'panaderos' && <PanaderosPanel onOpenPayments={(tipo, id, monto) => { setPagosFilters({ empleado_tipo: tipo, empleado_id: id }); setPagosOpenFor({ empleado_tipo: tipo, empleado_id: id, monto }); setActiveTab('pagos'); }} />}
+      {activeTab === 'vendedores' && <VendedoresPanel onOpenPayments={(tipo, id, monto) => { setPagosFilters({ empleado_tipo: tipo, empleado_id: id }); setPagosOpenFor({ empleado_tipo: tipo, empleado_id: id, monto }); setActiveTab('pagos'); }} />}
+      {activeTab === 'pagos' && <EmpleadoPagosPanel initialFilters={pagosFilters} openCreateFor={pagosOpenFor} />}
       {activeTab === 'inventario' && <InventarioPanel />}
       {activeTab === 'categorias' && <CategoriasPanel />}
       {activeTab === 'movimientos' && <MovimientosInventarioPanel />}
@@ -308,14 +339,14 @@ const AdminPanel = () => {
                     <td>
                       <strong>{producto.nombre}</strong>
                       <br />
-                      <small className="text-muted">{producto.presentacion}</small>
+                      <small className="text-muted">{String(producto.presentacion ?? '').trim() !== '' ? producto.presentacion : '\u2014'}</small>
                       {producto.es_de_temporada && (
                         <Badge bg="warning" className="ms-2">Temporada</Badge>
                       )}
                     </td>
                     <td>{producto.categoria?.nombre || 'Sin categoría'}</td>
                     <td>
-                      <strong>Bs. {parseFloat(producto.precio_minorista).toFixed(2)}</strong>
+                      <strong>Bs. {(parseFloat(String(producto.precio_minorista ?? producto.precio ?? 0)) || 0).toFixed(2)}</strong>
                       {producto.precio_mayorista && (
                         <>
                           <br />
@@ -326,11 +357,14 @@ const AdminPanel = () => {
                       )}
                     </td>
                     <td>
-                      {producto.limite_produccion ? (
+                      {producto.inventario && producto.inventario.stock_actual !== null ? (
+                        // El stock de productos finales es entero por diseño
+                        <span>{parseInt(producto.inventario.stock_actual, 10)}</span>
+                      ) : (producto.limite_produccion ? (
                         <Badge bg="info">{producto.limite_produccion} max</Badge>
                       ) : (
                         <span className="text-muted">—</span>
-                      )}
+                      ))}
                     </td>
                     <td>
                       <Badge bg={producto.esta_activo ? 'success' : 'secondary'}>

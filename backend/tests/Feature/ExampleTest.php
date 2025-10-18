@@ -14,6 +14,11 @@ class ExampleTest extends TestCase
     {
         $response = $this->get('/');
 
-        $response->assertStatus(200);
+    // In this app unauthenticated users are redirected; accept either /login or /app
+    $response->assertStatus(302);
+    $location = $response->headers->get('Location');
+    $this->assertNotNull($location, 'Response did not include a Location header');
+    $path = parse_url($location, PHP_URL_PATH);
+    $this->assertMatchesRegularExpression('/^\/(login|app)$/', $path, "Redirected to unexpected path: $path");
     }
 }

@@ -297,7 +297,7 @@ const PanaderoDetail = () => {
                 </label>
                 <p>
                   <span className={`badge ${getTurnoBadgeClass(panadero.turno)}`}>
-                    {panadero.turno?.charAt(0).toUpperCase() + panadero.turno?.slice(1)}
+                    {String(panadero.turno || '').charAt(0).toUpperCase() + String(panadero.turno || '').slice(1)}
                   </span>
                 </p>
               </div>
@@ -309,7 +309,7 @@ const PanaderoDetail = () => {
                 </label>
                 <p>
                   <span className={`badge ${getEspecialidadBadgeClass(panadero.especialidad)}`}>
-                    {panadero.especialidad?.charAt(0).toUpperCase() + panadero.especialidad?.slice(1)}
+                    {String(panadero.especialidad || '').charAt(0).toUpperCase() + String(panadero.especialidad || '').slice(1)}
                   </span>
                 </p>
               </div>

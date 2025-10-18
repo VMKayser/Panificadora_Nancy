@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Cliente;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Schema;
 
 class ClienteController extends Controller
 {
@@ -55,21 +56,32 @@ class ClienteController extends Controller
      */
     public function store(Request $request)
     {
+        // Build ci rule: if panaderos/clientes table has ci, we keep; else if users has ci we avoid unique on clientes
+        $ciRule = ['nullable','string','max:20'];
+        if (Schema::hasColumn('clientes', 'ci')) {
+            $ciRule = ['nullable','string','max:20'];
+        } elseif (Schema::hasColumn('users', 'ci')) {
+            // store ci on users instead of clientes; make it optional here
+            $ciRule = ['nullable','string','max:50'];
+        }
+
         $validated = $request->validate([
             'nombre' => 'required|string|max:255',
-            'apellido' => 'required|string|max:255',
+            // apellido can be optional; if not provided we'll default to empty string
+            'apellido' => 'nullable|string|max:255',
             'email' => 'required|email|unique:clientes,email',
             'telefono' => 'nullable|string|max:20',
             'direccion' => 'nullable|string',
-            'ci' => 'nullable|string|max:20',
+            'ci' => $ciRule,
             'tipo_cliente' => 'required|in:regular,mayorista,vip',
             'notas' => 'nullable|string',
             'activo' => 'boolean',
         ]);
 
-        $validated['activo'] = $validated['activo'] ?? true;
+    $validated['activo'] = $validated['activo'] ?? true;
+    $validated['apellido'] = $validated['apellido'] ?? '';
 
-        $cliente = Cliente::create($validated);
+    $cliente = Cliente::create($validated);
 
         return response()->json([
             'message' => 'Cliente creado exitosamente',

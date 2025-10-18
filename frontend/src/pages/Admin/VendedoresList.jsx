@@ -296,7 +296,7 @@ const VendedoresList = () => {
                     <td>
                       <div className="vendedor-info">
                         <div className="vendedor-avatar">
-                          {vendedor.user?.name?.charAt(0).toUpperCase() || 'V'}
+                          {(String(vendedor.user?.name || '').charAt(0).toUpperCase()) || 'V'}
                         </div>
                         <div>
                           <strong>{vendedor.user?.name || 'Sin nombre'}</strong>
@@ -314,7 +314,7 @@ const VendedoresList = () => {
                     </td>
                     <td>
                       <span className={`badge ${getTurnoBadgeClass(vendedor.turno)}`}>
-                        {vendedor.turno?.charAt(0).toUpperCase() + vendedor.turno?.slice(1)}
+                        {String(vendedor.turno || '').charAt(0).toUpperCase() + String(vendedor.turno || '').slice(1)}
                       </span>
                     </td>
                     <td>

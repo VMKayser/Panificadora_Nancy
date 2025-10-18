@@ -17,8 +17,12 @@ class ReconcileRolesSeeder extends Seeder
     {
         $created = 0;
 
-        $this->command->info('Reconciling users with role=panadero...');
-        $panaderos = User::where('role', 'panadero')->get();
+                $this->command->info('Reconciling users with role=panadero...');
+                // Prefer pivot roles, fallback to users.role column for compatibility
+                $panaderos = User::where(function($q){
+                        $q->whereHas('roles', function($r){ $r->where('name','panadero'); })
+                            ->orWhere('role','panadero');
+                })->get();
         foreach ($panaderos as $u) {
             if (!$u->panadero) {
                 // The `panaderos` table in this deployment doesn't include nombre/apellido/email
@@ -39,8 +43,11 @@ class ReconcileRolesSeeder extends Seeder
             }
         }
 
-        $this->command->info('Reconciling users with role=vendedor...');
-        $vendedores = User::where('role', 'vendedor')->get();
+                $this->command->info('Reconciling users with role=vendedor...');
+                $vendedores = User::where(function($q){
+                        $q->whereHas('roles', function($r){ $r->where('name','vendedor'); })
+                            ->orWhere('role','vendedor');
+                })->get();
         foreach ($vendedores as $u) {
             if (!$u->vendedor) {
                 Vendedor::create([

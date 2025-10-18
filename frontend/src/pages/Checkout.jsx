@@ -3,12 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useSEO } from '../hooks/useSEO';
 import { Container, Row, Col, Form, Button, Card, ListGroup, Image } from 'react-bootstrap';
 import { useCart } from '../context/CartContext';
-import { crearPedido, getMetodosPago } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { crearPedido, getMetodosPago, assetBase } from '../services/api';
 import { toast } from 'react-toastify';
 
 const Checkout = () => {
   const navigate = useNavigate();
-  const { cart, getTotal, getTotalItems, clearCart } = useCart();
+  const { cart, getTotal, getTotalItems, clearCart, updateQuantity, removeFromCart } = useCart();
+  const { user } = useAuth();
   
   // Estados del formulario
   const [formData, setFormData] = useState({
@@ -16,17 +18,22 @@ const Checkout = () => {
     cliente_apellido: '',
     cliente_email: '',
     cliente_telefono: '',
-    tipo_entrega: 'recoger',
+  tipo_entrega: 'recoger',
     direccion_entrega: '',
     indicaciones_especiales: '',
     metodos_pago_id: null,
-    codigo_promocional: '',
+    direccion_lat: null,
+    direccion_lng: null,
   });
-
   const [metodosPago, setMetodosPago] = useState([]);
   const [loading, setLoading] = useState(false);
   const [descuento, setDescuento] = useState(0);
+  // Flag: true if any cart item does NOT allow national shipping
+  const [hasNonShippableNationalItem, setHasNonShippableNationalItem] = useState(false);
+  const [direccionValida, setDireccionValida] = useState(false);
   const [fechaEntrega, setFechaEntrega] = useState('');
+  const [horaEntrega, setHoraEntrega] = useState('');
+  const [minFecha, setMinFecha] = useState('');
 
   // SEO: no indexar la página de checkout
   useSEO({
@@ -40,11 +47,16 @@ const Checkout = () => {
     const fetchMetodosPago = async () => {
       try {
         const metodos = await getMetodosPago();
-        setMetodosPago(metodos);
-        // Seleccionar el primer método activo por defecto
-        const primerMetodo = metodos.find(m => m.esta_activo);
-        if (primerMetodo) {
-          setFormData(prev => ({ ...prev, metodos_pago_id: primerMetodo.id }));
+      // En checkout sólo aceptamos métodos QR. Aceptamos códigos 'qr', 'qr_simple' o similares
+        const qrMetodos = metodos.filter(m => m.esta_activo && /qr/i.test(m.codigo || ''));
+        if (qrMetodos.length > 0) {
+          setMetodosPago(qrMetodos);
+          setFormData(prev => ({ ...prev, metodos_pago_id: qrMetodos[0].id }));
+        } else {
+          // No hay QR en backend: bloquear checkout y avisar al usuario
+          setMetodosPago([]);
+          setFormData(prev => ({ ...prev, metodos_pago_id: null }));
+          toast.warn('No hay métodos QR activos disponibles en este momento. Por favor contacta a la tienda.');
         }
       } catch (error) {
         console.error('Error al cargar métodos de pago:', error);
@@ -54,26 +66,109 @@ const Checkout = () => {
     fetchMetodosPago();
   }, []);
 
-  // Calcular fecha mínima de entrega basada en productos
+  // Prefill form when user is logged in
+  useEffect(() => {
+    if (!user) return;
+    setFormData(prev => ({
+      ...prev,
+      cliente_nombre: prev.cliente_nombre || user.name || '',
+      cliente_apellido: prev.cliente_apellido || user.last_name || user.apellido || '',
+      cliente_email: prev.cliente_email || user.email || '',
+      cliente_telefono: prev.cliente_telefono || user.telefono || user.phone || '',
+    }));
+  }, [user]);
+
+  // Calcular fecha mínima de entrega basada en productos (en minutos)
   useEffect(() => {
     if (cart.length === 0) return;
-    
-    // Encontrar el producto que requiere más anticipación
-    let diasMaximos = 0;
+
+    // Encontrar el mayor tiempo de anticipación en minutos
+    let minutosMaximos = 0;
     cart.forEach(item => {
       if (item.requiere_tiempo_anticipacion) {
-        const dias = item.unidad_tiempo === 'dias' ? item.tiempo_anticipacion : 
-                     item.unidad_tiempo === 'horas' ? Math.ceil(item.tiempo_anticipacion / 24) : 0;
-        diasMaximos = Math.max(diasMaximos, dias);
+        let minutos = 0;
+        if (item.unidad_tiempo === 'dias') {
+          minutos = (Number(item.tiempo_anticipacion) || 0) * 24 * 60;
+        } else if (item.unidad_tiempo === 'horas') {
+          minutos = (Number(item.tiempo_anticipacion) || 0) * 60;
+        } else {
+          // Por defecto tratamos la unidad como minutos
+          minutos = (Number(item.tiempo_anticipacion) || 0);
+        }
+        minutosMaximos = Math.max(minutosMaximos, minutos);
       }
     });
 
-    const fechaMinima = new Date();
-    fechaMinima.setDate(fechaMinima.getDate() + diasMaximos);
-    
+    // Añadimos un buffer mínimo (30 minutos) además del tiempo de anticipación
+    const bufferMinutos = 30;
+    const totalMinutos = (minutosMaximos || 0) + bufferMinutos;
+
+    const now = new Date();
+    const fechaMinima = new Date(now.getTime() + totalMinutos * 60 * 1000);
+
+    const pad = (n) => String(n).padStart(2, '0');
     const fechaFormateada = fechaMinima.toISOString().split('T')[0];
-    setFechaEntrega(fechaFormateada);
+    const horaFormateada = `${pad(fechaMinima.getHours())}:${pad(fechaMinima.getMinutes())}`;
+
+    // Guardamos la fecha mínima para usar en el atributo min del input date
+    setMinFecha(fechaFormateada);
+
+    // Solo prefill si el usuario/admin no ha seleccionado ya una fecha/hora
+    if (!fechaEntrega) setFechaEntrega(fechaFormateada);
+    if (!horaEntrega) setHoraEntrega(horaFormateada);
   }, [cart]);
+
+  // Helper: quick set for fecha/hora (minutes from now)
+  const setQuick = (minutes) => {
+    const dt = new Date(Date.now() + minutes * 60 * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    setFechaEntrega(dt.toISOString().split('T')[0]);
+    setHoraEntrega(`${pad(dt.getHours())}:${pad(dt.getMinutes())}`);
+  };
+
+  // Detectar si hay productos que NO permiten envío nacional
+  useEffect(() => {
+    if (!cart || cart.length === 0) {
+      setHasNonShippableNationalItem(false);
+      return;
+    }
+    const hasNon = cart.some(item => item.permite_envio_nacional === false);
+    setHasNonShippableNationalItem(hasNon);
+    // Si el usuario había elegido Envío Nacional pero ahora hay productos no-enviables, forzamos recoger
+    if (hasNon && formData.tipo_entrega === 'envio_nacional') {
+      setFormData(prev => ({ ...prev, tipo_entrega: 'recoger' }));
+      toast.info('Delivery deshabilitado porque hay productos que no permiten envío nacional. Elige Retiro o elimina los productos listados.');
+    }
+  }, [cart]);
+
+  // Validar dirección básica: por ahora comprobamos que contenga la palabra 'Quillacollo'
+  const validarDireccionBasica = (direccion) => {
+    if (!direccion) return false;
+    return /quillacollo/i.test(direccion);
+  }
+
+  // Bounding box client-side quick check for Quillacollo (approximate). Adjust values in backend if needed.
+  const isWithinQuillacollo = (lat, lng) => {
+    if (lat === null || lng === null) return false;
+    // Approximate bounding box for Quillacollo, Cochabamba (minLat, maxLat, minLng, maxLng)
+    const minLat = -17.45;
+    const maxLat = -17.22;
+    const minLng = -66.35;
+    const maxLng = -66.10;
+    return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
+  }
+
+  // Helpers numéricos seguros
+  const toNumber = (v) => {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === 'number') return isNaN(v) ? 0 : v;
+    const n = Number(v);
+    return isNaN(n) ? 0 : n;
+  };
+
+  const formatPrice = (v) => {
+    return (toNumber(v)).toFixed(2);
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -81,13 +176,8 @@ const Checkout = () => {
   };
 
   const handleAplicarCupon = () => {
-    // Lógica de cupón (por ahora simulado)
-    if (formData.codigo_promocional.toUpperCase() === 'PROMO10') {
-      setDescuento(getTotal() * 0.1);
-      toast.success('¡Cupón aplicado! 10% de descuento');
-    } else if (formData.codigo_promocional) {
-      toast.error('Código promocional no válido');
-    }
+    // Coupons temporarily disabled in checkout UI.
+    toast.info('Códigos promocionales deshabilitados por el momento');
   };
 
   const handleSubmit = async (e) => {
@@ -109,14 +199,43 @@ const Checkout = () => {
       return;
     }
 
-    if (formData.tipo_entrega === 'delivery' && !formData.direccion_entrega) {
+    if ((formData.tipo_entrega === 'delivery' || formData.tipo_entrega === 'envio_nacional') && !formData.direccion_entrega) {
       toast.error('Ingresa la dirección de entrega');
       return;
+    }
+
+    if (formData.tipo_entrega === 'delivery') {
+      // Validación básica local: dirección debe pertenecer a Quillacollo (mejorar con geocodificación en backend)
+      const ok = validarDireccionBasica(formData.direccion_entrega) || direccionValida || isWithinQuillacollo(formData.direccion_lat, formData.direccion_lng);
+      if (!ok) {
+        toast.error('La dirección debe estar dentro de Quillacollo, Cochabamba. Usa "Validar dirección" o elige Retiro.');
+        return;
+      }
     }
 
     setLoading(true);
 
     try {
+      // Última validación de stock en cliente: evitar crear pedido con items sin stock
+      const outOfStock = [];
+      cart.forEach(item => {
+        const available = item?.producto?.inventario?.stock_actual ?? item?.producto?.stock_actual ?? item?.inventario?.stock_actual ?? item?.stock_actual ?? item?.stock ?? null;
+        if (available !== null) {
+          if (Number(available) <= 0) {
+            outOfStock.push({ nombre: item.nombre || item.producto?.nombre || 'Producto', disponible: 0, solicitado: item.cantidad });
+          } else if (Number(item.cantidad) > Number(available)) {
+            outOfStock.push({ nombre: item.nombre || item.producto?.nombre || 'Producto', disponible: available, solicitado: item.cantidad });
+          }
+        }
+      });
+
+      if (outOfStock.length > 0) {
+        const list = outOfStock.map(p => `${p.nombre} — disponible: ${p.disponible}, solicitado: ${p.solicitado}`).join('\n');
+        toast.error('No se puede crear el pedido por problemas de stock:\n' + list, { autoClose: 8000 });
+        setLoading(false);
+        return;
+      }
+
       // Preparar datos del pedido
       const pedidoData = {
         ...formData,
@@ -124,7 +243,8 @@ const Checkout = () => {
           id: item.id,
           cantidad: item.cantidad,
         })),
-        fecha_entrega: fechaEntrega,
+          // Enviar un único campo datetime combinando fecha+hora (si se proporcionan)
+          entrega_datetime: (fechaEntrega && horaEntrega) ? `${fechaEntrega} ${horaEntrega}:00` : null,
         subtotal: getTotal(),
         descuento: descuento,
         total: getTotal() - descuento,
@@ -142,7 +262,13 @@ const Checkout = () => {
 
     } catch (error) {
       console.error('Error al crear pedido:', error);
-      toast.error(error.response?.data?.message || 'Error al procesar el pedido');
+      const status = error.response?.status;
+      if (status === 422 && error.response?.data?.blocking_products) {
+        const list = error.response.data.blocking_products.map(p => `${p.nombre} (x${p.cantidad})`).join('\n');
+        toast.error('No es posible realizar delivery por los siguientes productos:\n' + list, { autoClose: 8000 });
+      } else {
+        toast.error(error.response?.data?.message || 'Error al procesar el pedido');
+      }
     } finally {
       setLoading(false);
     }
@@ -249,26 +375,134 @@ const Checkout = () => {
                     >
                       Retiro
                     </Button>
+
                     <Button
                       variant={formData.tipo_entrega === 'delivery' ? 'primary' : 'outline-secondary'}
                       onClick={() => setFormData(prev => ({ ...prev, tipo_entrega: 'delivery' }))}
                       style={formData.tipo_entrega === 'delivery' ? { backgroundColor: '#8b6f47', borderColor: '#8b6f47' } : {}}
+                      title={'Delivery local (Quillacollo)'}
+                    >
+                      Delivery (local)
+                    </Button>
+
+                    <Button
+                      variant={formData.tipo_entrega === 'envio_nacional' ? 'primary' : 'outline-secondary'}
+                      onClick={() => { if (!hasNonShippableNationalItem) setFormData(prev => ({ ...prev, tipo_entrega: 'envio_nacional' })); }}
+                      disabled={hasNonShippableNationalItem}
+                      title={hasNonShippableNationalItem ? 'Envío nacional deshabilitado por productos no-enviables' : 'Envío a todo Bolivia'}
                     >
                       Envío Nacional
                     </Button>
                   </div>
                 </Form.Group>
 
-                {formData.tipo_entrega === 'delivery' && (
+                {/* Fecha y hora de entrega (opcional) */}
+                <Form.Group className="mb-3">
+                  <Form.Label>Fecha y hora de entrega (opcional)</Form.Label>
+                  <div className="d-flex gap-2 align-items-center">
+                    <Form.Control
+                      type="date"
+                      value={fechaEntrega}
+                      onChange={(e) => setFechaEntrega(e.target.value)}
+                      min={minFecha || fechaEntrega}
+                      style={{ maxWidth: 180 }}
+                    />
+                    <Form.Control
+                      type="time"
+                      value={horaEntrega}
+                      onChange={(e) => setHoraEntrega(e.target.value)}
+                      style={{ maxWidth: 140 }}
+                    />
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <Button size="sm" variant="outline-secondary" onClick={() => setQuick(0)}>Ahora</Button>
+                      <Button size="sm" variant="outline-secondary" onClick={() => setQuick(30)}>+30m</Button>
+                      <Button size="sm" variant="outline-secondary" onClick={() => setQuick(60)}>+1h</Button>
+                      <Button size="sm" variant="outline-secondary" onClick={() => setQuick(24*60)}>Mañana</Button>
+                    </div>
+                  </div>
+                  <Form.Text className="text-muted">Si no lo completas, se procesará lo antes posible según la disponibilidad.</Form.Text>
+                </Form.Group>
+
+                {(formData.tipo_entrega === 'delivery' || formData.tipo_entrega === 'envio_nacional') && (
                   <Form.Group className="mb-3">
                     <Form.Label>📍 Ingresa tu dirección</Form.Label>
-                    <Form.Control
-                      type="text"
-                      name="direccion_entrega"
-                      value={formData.direccion_entrega}
-                      onChange={handleInputChange}
-                      placeholder="Buscar dirección ..."
-                    />
+                    <div className="d-flex gap-2">
+                      <Form.Control
+                        type="text"
+                        name="direccion_entrega"
+                        value={formData.direccion_entrega}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData(prev => ({ ...prev, direccion_entrega: val }));
+                          setDireccionValida(false);
+
+                          // Only attempt coord parsing for delivery (users may paste coords)
+                          if (formData.tipo_entrega === 'delivery') {
+                            const coordMatch = val.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+                            if (coordMatch) {
+                              const lat = parseFloat(coordMatch[1]);
+                              const lng = parseFloat(coordMatch[2]);
+                              setFormData(prev => ({ ...prev, direccion_lat: lat, direccion_lng: lng }));
+                              const ok = isWithinQuillacollo(lat, lng);
+                              setDireccionValida(ok);
+                              if (ok) {
+                                toast.success('Coordenadas detectadas dentro de Quillacollo');
+                              } else {
+                                toast.error('Coordenadas detectadas, pero parecen estar fuera de Quillacollo');
+                              }
+                            } else {
+                              setFormData(prev => ({ ...prev, direccion_lat: null, direccion_lng: null }));
+                            }
+                          } else {
+                            // For envio_nacional we do not parse coords and clear them
+                            setFormData(prev => ({ ...prev, direccion_lat: null, direccion_lng: null }));
+                          }
+                        }}
+                        placeholder={formData.tipo_entrega === 'delivery' ? "Introduzca coordenadas (lat, lng) o use 'Usar mi ubicación'" : 'Departamento o ciudad (ej. Cochabamba)'}
+                      />
+
+                      {/* Buttons: only show validate + geolocation for delivery; for envio_nacional hide them */}
+                      {formData.tipo_entrega === 'delivery' ? (
+                        <div className="d-flex gap-2">
+                          <Button variant="outline-primary" onClick={() => {
+                            // If coordinates present, validate by coords first; otherwise fallback to text check
+                            const lat = formData.direccion_lat;
+                            const lng = formData.direccion_lng;
+                            let ok = false;
+                            if (lat !== null && lng !== null) {
+                              ok = isWithinQuillacollo(lat, lng);
+                            } else {
+                              ok = validarDireccionBasica(formData.direccion_entrega);
+                            }
+                            setDireccionValida(ok);
+                            if (ok) toast.success('Dirección válida dentro de Quillacollo (validación).');
+                            else toast.error('Dirección no válida para Quillacollo.');
+                          }}>Validar dirección</Button>
+                          <Button variant="outline-secondary" onClick={() => {
+                            if (!navigator.geolocation) {
+                              toast.error('Geolocalización no soportada por tu navegador');
+                              return;
+                            }
+                            navigator.geolocation.getCurrentPosition((pos) => {
+                              const lat = pos.coords.latitude;
+                              const lng = pos.coords.longitude;
+                              setFormData(prev => ({ ...prev, direccion_lat: lat, direccion_lng: lng }));
+                              const ok = isWithinQuillacollo(lat, lng);
+                              setDireccionValida(ok);
+                              if (ok) toast.success('Ubicación detectada dentro de Quillacollo');
+                              else toast.error('Tu ubicación parece estar fuera de Quillacollo');
+                            }, (err) => {
+                              toast.error('No se pudo obtener la ubicación: ' + err.message);
+                            }, { enableHighAccuracy: true, timeout: 8000 });
+                          }}>Usar mi ubicación</Button>
+                        </div>
+                      ) : (
+                        <Form.Text className="text-muted">Introduce el departamento o la ciudad para envío nacional (ej. Cochabamba).</Form.Text>
+                      )}
+
+                    </div>
+                    {formData.tipo_entrega === 'delivery' && <Form.Text className="text-muted">Puedes pegar coordenadas como -17.39, -66.26 o usar el botón "Usar mi ubicación".</Form.Text>}
+                    {direccionValida && <div className="text-success mt-2">Dirección validada (básico)</div>}
                   </Form.Group>
                 )}
               </Card.Body>
@@ -279,8 +513,8 @@ const Checkout = () => {
               <Card.Body>
                 <h5 className="mb-3" style={{ fontWeight: 'bold' }}>Pago</h5>
                 <Form.Label>Medios de pago:</Form.Label>
-                
-                {metodosPago.filter(m => m.esta_activo).map(metodo => (
+
+                {metodosPago.map(metodo => (
                   <div 
                     key={metodo.id} 
                     className="border rounded p-3 mb-2 d-flex align-items-center"
@@ -295,24 +529,48 @@ const Checkout = () => {
                       label=""
                       className="me-3"
                     />
-                    {metodo.codigo === 'qr_simple' && (
-                      <div className="d-flex align-items-center">
-                        <div 
-                          style={{ 
-                            width: '50px', 
-                            height: '50px', 
-                            border: '2px solid black',
-                            marginRight: '10px',
+                    {( /qr/i.test(metodo.codigo || '')) && (
+                      <div className="d-flex align-items-center w-100">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%' }}>
+                          <div style={{
+                            width: '120px',
+                            height: '120px',
+                            border: '2px solid #ddd',
+                            marginRight: '12px',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: '10px',
-                            textAlign: 'center'
-                          }}
-                        >
-                          QR
+                            background: '#fff'
+                          }}>
+                            {/* Mostrar icono subido por admin si existe */}
+                            {metodo.icono_url ? (
+                              <Image
+                                src={metodo.icono_url}
+                                alt={metodo.nombre}
+                                rounded
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              />
+                            ) : metodo.icono ? (
+                              <Image
+                                src={metodo.icono.startsWith('http') ? metodo.icono : `${assetBase().replace(/\/$/, '')}/${metodo.icono.replace(/^\//, '')}`}
+                                alt={metodo.nombre}
+                                rounded
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              />
+                            ) : (
+                              <span style={{ fontSize: '14px', color: '#333' }}>QR</span>
+                            )}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: '600' }}>{metodo.nombre}</div>
+                            <div style={{ fontSize: '14px', color: '#555' }}>
+                              Escanea el QR y envía el comprobante por WhatsApp al número de la empresa.
+                            </div>
+                            <div style={{ marginTop: '6px' }}>
+                              <a href={`https://wa.me/59176490687`} target="_blank" rel="noreferrer">Enviar comprobante por WhatsApp: +591 764 90687</a>
+                            </div>
+                          </div>
                         </div>
-                        <span>{metodo.nombre}</span>
                       </div>
                     )}
                     {metodo.codigo === 'transferencia' && (
@@ -381,9 +639,27 @@ const Checkout = () => {
                           style={{ width: '60px', height: '60px', objectFit: 'cover', marginRight: '12px' }}
                         />
                         <div className="flex-grow-1">
-                          <div className="d-flex justify-content-between">
-                            <span>{item.cantidad} x {item.nombre}</span>
-                            <strong>Bs {(item.precio_minorista * item.cantidad).toFixed(2)}</strong>
+                          <div className="d-flex justify-content-between align-items-start">
+                            <div>
+                              <div style={{ fontWeight: '600' }}>{item.nombre}</div>
+                              <div className="text-muted" style={{ fontSize: '13px' }}>Bs {formatPrice(item.precio_minorista)} c/u</div>
+                              {item.permite_envio_nacional === false && (
+                                <div className="badge bg-warning text-dark mt-1">No envíos nacionales</div>
+                              )}
+                            </div>
+                            <div className="text-end">
+                              <div className="d-flex align-items-center mb-2">
+                                <Button size="sm" variant="light" onClick={() => updateQuantity(item.id, item.cantidad - 1)}>-</Button>
+                                <div style={{ width: '40px', textAlign: 'center' }}>{item.cantidad}</div>
+                                <Button size="sm" variant="light" onClick={() => updateQuantity(item.id, item.cantidad + 1)}>+</Button>
+                              </div>
+                              <div>
+                                <strong>Bs {(toNumber(item.precio_minorista) * toNumber(item.cantidad)).toFixed(2)}</strong>
+                              </div>
+                              <div className="mt-2">
+                                <Button size="sm" variant="outline-danger" onClick={() => removeFromCart(item.id)}>Eliminar</Button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -391,24 +667,29 @@ const Checkout = () => {
                   ))}
                 </ListGroup>
 
-                {/* Código Promocional */}
-                <div className="mb-3">
-                  <div className="d-flex gap-2">
-                    <Form.Control
-                      type="text"
-                      name="codigo_promocional"
-                      value={formData.codigo_promocional}
-                      onChange={handleInputChange}
-                      placeholder="Código Promocional"
-                    />
-                    <Button
-                      onClick={handleAplicarCupon}
-                      style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}
-                    >
-                      Aplicar
-                    </Button>
+                {/* Nota: los códigos promocionales están temporalmente deshabilitados */}
+                {hasNonShippableNationalItem && (
+                  <div className="alert alert-warning" role="alert">
+                    Algunos productos en tu carrito no permiten envío nacional. Si deseas envío, elimina los siguientes productos o elige Retiro:
+                    <ul className="mt-2 mb-0">
+                      {cart.filter(i => i.permite_envio_nacional === false).map(i => (
+                        <li key={i.id}>{i.nombre} (cantidad: {i.cantidad})</li>
+                      ))}
+                    </ul>
                   </div>
-                </div>
+                )}
+
+                {formData.tipo_entrega === 'recoger' && (
+                  <div className="mb-3">
+                    <div className="bg-light p-2 rounded">
+                      <strong>Retiro en sucursal:</strong>
+                      <div>HPW9+J94, Av. Martín Cardenas, Quillacollo</div>
+                      <div>
+                        <a href="https://www.google.com/maps/search/?api=1&query=-17.403381642688004,-66.2815992191286" target="_blank" rel="noreferrer">Ver en mapa</a>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Totales */}
                 <hr />

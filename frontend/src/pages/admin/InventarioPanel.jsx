@@ -32,7 +32,7 @@ export default function InventarioPanel() {
   if (loading) return <div className="text-center py-4"><Spinner animation="border" /></div>;
 
   const stockBajoMaterias = materias.filter(m => m.stock_actual <= m.stock_minimo);
-  const stockBajoProductos = productosFinal.filter(p => p.cantidad_disponible <= (p.stock_minimo || 0));
+  const stockBajoProductos = productosFinal.filter(p => p.stock_actual <= (p.stock_minimo || 0));
 
   return (
     <div>
@@ -153,7 +153,7 @@ export default function InventarioPanel() {
                 <Card.Body>
                   <h6 className="text-muted">Stock Total</h6>
                   <h2 className="text-success">
-                    {productosFinal.reduce((sum, p) => sum + (p.cantidad_disponible || 0), 0)}
+                    {productosFinal.reduce((sum, p) => sum + (p.stock_actual || 0), 0).toFixed(2)}
                   </h2>
                 </Card.Body>
               </Card>
@@ -170,34 +170,32 @@ export default function InventarioPanel() {
                   <tr>
                     <th>ID</th>
                     <th>Producto</th>
-                    <th>Cantidad Disponible</th>
+                    <th>Stock Actual</th>
                     <th>Stock Mínimo</th>
-                    <th>Ubicación</th>
-                    <th>Lote</th>
-                    <th>Fecha Producción</th>
+                    <th>Costo Promedio</th>
+                    <th>Fecha Elaboración</th>
+                    <th>Fecha Vencimiento</th>
                     <th>Estado</th>
                   </tr>
                 </thead>
                 <tbody>
                   {productosFinal.map(p => (
-                    <tr key={p.id}>
-                      <td>{p.id}</td>
-                      <td>{p.producto?.nombre || 'N/A'}</td>
+                    <tr key={p.producto_id}>
+                      <td>{p.producto_id}</td>
+                      <td>{p.producto || 'N/A'}</td>
                       <td>
-                        <Badge bg={p.cantidad_disponible <= (p.stock_minimo || 0) ? 'danger' : 'success'}>
-                          {p.cantidad_disponible || 0}
+                        <Badge bg={p.stock_actual <= (p.stock_minimo || 0) ? 'danger' : 'success'}>
+                          {parseFloat(p.stock_actual || 0).toFixed(2)}
                         </Badge>
                       </td>
-                      <td>{p.stock_minimo || 0}</td>
-                      <td>{p.ubicacion || 'N/A'}</td>
-                      <td>{p.lote || 'N/A'}</td>
-                      <td>{p.fecha_produccion ? new Date(p.fecha_produccion).toLocaleDateString() : 'N/A'}</td>
+                      <td>{parseFloat(p.stock_minimo || 0).toFixed(2)}</td>
+                      <td>Bs. {parseFloat(p.costo_promedio || 0).toFixed(2)}</td>
+                      <td>{p.fecha_elaboracion || 'N/A'}</td>
+                      <td>{p.fecha_vencimiento || 'N/A'}</td>
                       <td>
-                        {p.activo ? (
-                          <Badge bg="success">Activo</Badge>
-                        ) : (
-                          <Badge bg="secondary">Inactivo</Badge>
-                        )}
+                        <Badge bg={p.stock_actual > 0 ? 'success' : 'secondary'}>
+                          {p.stock_actual > 0 ? 'Con Stock' : 'Sin Stock'}
+                        </Badge>
                       </td>
                     </tr>
                   ))}

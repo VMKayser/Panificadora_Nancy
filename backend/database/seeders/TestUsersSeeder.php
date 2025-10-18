@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\Cliente;
 use App\Models\Panadero;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 class TestUsersSeeder extends Seeder
 {
@@ -34,23 +35,54 @@ class TestUsersSeeder extends Seeder
             $panificador->roles()->attach($vendedorRole->id);
         }
 
-        // Crear registro en tabla panaderos
-        Panadero::firstOrCreate(
-            ['email' => 'vendedor@panificadoranancy.com'],
+        // Crear registro en tabla panaderos - vincular por user_id si la columna existe
+        // Only include columns that remain on the panaderos table (contact info lives on users)
+        $panaderoData = [
+            'direccion' => 'Calle Los Hornos #123, La Paz',
+            'fecha_ingreso' => '2024-01-15',
+            'turno' => 'mañana',
+            'especialidad' => 'ambos',
+            'salario_base' => 3500.00,
+            'activo' => true,
+            'observaciones' => 'Panadero con 10 años de experiencia'
+        ];
+
+        // Crear usuario Panadero (separado del vendedor) si no existe
+        $panaderoUser = User::firstOrCreate(
+            ['email' => 'panadero@panificadoranancy.com'],
             [
-                'nombre' => 'Carlos',
-                'apellido' => 'Panificador',
-                'telefono' => '65551234',
-                'ci' => '5555555 LP',
-                'direccion' => 'Calle Los Hornos #123, La Paz',
-                'fecha_ingreso' => '2024-01-15',
-                'turno' => 'mañana',
-                'especialidad' => 'ambos',
-                'salario_base' => 3500.00,
-                'activo' => true,
-                'observaciones' => 'Panadero con 10 años de experiencia'
+                'name' => 'Pedro Panadero',
+                'password' => Hash::make('panadero123'),
+                'phone' => '65550001',
+                'is_active' => true,
+                'email_verified_at' => now(),
             ]
         );
+
+        // Asignar rol de panadero al usuario panadero
+        $panaderoRole = Role::where('name', 'panadero')->first();
+        if ($panaderoRole && !$panaderoUser->hasRole('panadero')) {
+            $panaderoUser->roles()->attach($panaderoRole->id);
+        }
+
+        try {
+            // If panaderos table has user_id, link the Panadero to the created User
+            if (Schema::hasColumn('panaderos', 'user_id')) {
+                Panadero::firstOrCreate(
+                    ['user_id' => $panaderoUser->id],
+                    array_merge($panaderoData, ['user_id' => $panaderoUser->id, 'codigo_panadero' => Panadero::generarCodigoPanadero()])
+                );
+            } else {
+                // Fallback: older schema where panaderos had email field
+                Panadero::firstOrCreate(
+                    ['email' => 'vendedor@panificadoranancy.com'],
+                    $panaderoData
+                );
+            }
+        } catch (\Exception $e) {
+            // If migration state is unexpected, log and continue without failing the seeder
+            $this->command->error('Warning: could not create panadero record: ' . $e->getMessage());
+        }
 
         // Usuario Cliente 1
         $cliente1 = User::firstOrCreate(
@@ -70,19 +102,32 @@ class TestUsersSeeder extends Seeder
             $cliente1->roles()->attach($clienteRole->id);
         }
 
-        // Crear registro en tabla clientes
-        Cliente::firstOrCreate(
-            ['email' => 'maria@cliente.com'],
-            [
-                'nombre' => 'María',
-                'apellido' => 'García',
-                'telefono' => '65559876',
-                'direccion' => 'Av. 6 de Agosto #123, La Paz',
-                'ci' => '7654321 LP',
-                'tipo_cliente' => 'regular',
-                'activo' => true,
-            ]
-        );
+        // Crear registro en tabla clientes - vincular por user_id si la columna existe
+        $clienteData1 = [
+            'nombre' => 'María',
+            'apellido' => 'García',
+            'telefono' => '65559876',
+            'direccion' => 'Av. 6 de Agosto #123, La Paz',
+            'ci' => '7654321 LP',
+            'tipo_cliente' => 'regular',
+            'activo' => true,
+        ];
+
+        try {
+            if (Schema::hasColumn('clientes', 'user_id')) {
+                    Cliente::firstOrCreate(
+                        ['user_id' => $cliente1->id],
+                        array_merge($clienteData1, ['user_id' => $cliente1->id, 'email' => $cliente1->email])
+                    );
+                } else {
+                    Cliente::firstOrCreate(
+                        ['email' => 'maria@cliente.com'],
+                        $clienteData1
+                    );
+                }
+        } catch (\Exception $e) {
+            $this->command->error('Warning: could not create cliente (maria): ' . $e->getMessage());
+        }
 
         // Usuario Cliente 2
         $cliente2 = User::firstOrCreate(
@@ -100,19 +145,31 @@ class TestUsersSeeder extends Seeder
             $cliente2->roles()->attach($clienteRole->id);
         }
 
-        // Crear registro en tabla clientes
-        Cliente::firstOrCreate(
-            ['email' => 'juan@cliente.com'],
-            [
-                'nombre' => 'Juan',
-                'apellido' => 'Pérez',
-                'telefono' => '65555555',
-                'direccion' => 'Calle Comercio #456, La Paz',
-                'ci' => '9876543 LP',
-                'tipo_cliente' => 'regular',
-                'activo' => true,
-            ]
-        );
+        $clienteData2 = [
+            'nombre' => 'Juan',
+            'apellido' => 'Pérez',
+            'telefono' => '65555555',
+            'direccion' => 'Calle Comercio #456, La Paz',
+            'ci' => '9876543 LP',
+            'tipo_cliente' => 'regular',
+            'activo' => true,
+        ];
+
+        try {
+            if (Schema::hasColumn('clientes', 'user_id')) {
+                    Cliente::firstOrCreate(
+                        ['user_id' => $cliente2->id],
+                        array_merge($clienteData2, ['user_id' => $cliente2->id, 'email' => $cliente2->email])
+                    );
+                } else {
+                    Cliente::firstOrCreate(
+                        ['email' => 'juan@cliente.com'],
+                        $clienteData2
+                    );
+                }
+        } catch (\Exception $e) {
+            $this->command->error('Warning: could not create cliente (juan): ' . $e->getMessage());
+        }
 
         // Usuario Cliente 3
         $cliente3 = User::firstOrCreate(
@@ -130,19 +187,31 @@ class TestUsersSeeder extends Seeder
             $cliente3->roles()->attach($clienteRole->id);
         }
 
-        // Crear registro en tabla clientes
-        Cliente::firstOrCreate(
-            ['email' => 'ana@cliente.com'],
-            [
-                'nombre' => 'Ana',
-                'apellido' => 'López',
-                'telefono' => '65554321',
-                'direccion' => 'Zona Sur, Calle 21 #789, La Paz',
-                'ci' => '1234567 LP',
-                'tipo_cliente' => 'mayorista',
-                'activo' => true,
-            ]
-        );
+        $clienteData3 = [
+            'nombre' => 'Ana',
+            'apellido' => 'López',
+            'telefono' => '65554321',
+            'direccion' => 'Zona Sur, Calle 21 #789, La Paz',
+            'ci' => '1234567 LP',
+            'tipo_cliente' => 'mayorista',
+            'activo' => true,
+        ];
+
+        try {
+            if (Schema::hasColumn('clientes', 'user_id')) {
+                    Cliente::firstOrCreate(
+                        ['user_id' => $cliente3->id],
+                        array_merge($clienteData3, ['user_id' => $cliente3->id, 'email' => $cliente3->email])
+                    );
+                } else {
+                    Cliente::firstOrCreate(
+                        ['email' => 'ana@cliente.com'],
+                        $clienteData3
+                    );
+                }
+        } catch (\Exception $e) {
+            $this->command->error('Warning: could not create cliente (ana): ' . $e->getMessage());
+        }
 
         $this->command->info('Usuarios de prueba creados:');
         $this->command->info('- Vendedor: vendedor@panificadoranancy.com / vendedor123');

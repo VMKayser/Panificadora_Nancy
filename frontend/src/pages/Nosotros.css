@@ -196,6 +196,12 @@
   height: 20px;
 }
 
+/* Ensure badge icons (inside image-badge) use stroke=currentColor so they adopt white on colored badges */
+.badge-icon svg {
+  stroke: currentColor;
+  fill: none;
+}
+
 /* Stats Mini */
 .stats-mini {
   display: grid;
@@ -226,6 +232,12 @@
   width: 32px;
   height: 32px;
   flex-shrink: 0;
+}
+
+/* Ensure lucide/react SVG icons follow currentColor for stroke and are visible */
+.stat-icon svg {
+  stroke: currentColor;
+  fill: none;
 }
 
 .stat-item div {

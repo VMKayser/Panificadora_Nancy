@@ -13,10 +13,13 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminPanel from './pages/AdminPanel';
 import VendedorPanel from './pages/VendedorPanel';
+import PerfilPanel from './pages/admin/PerfilPanel';
+import MisPedidos from './pages/MisPedidos';
 import Nosotros from './pages/Nosotros';
 import Contacto from './pages/Contacto';
 import UsersList from './pages/Admin/UsersList';
 import MisVentas from './pages/Vendedor/MisVentas';
+import ProduccionForm from './pages/Panadero/ProduccionForm';
 
 function App() {
   // Use Vite's BASE_URL so React Router works correctly when the app is served under /app/
@@ -42,7 +45,7 @@ function App() {
             <Route 
               path="/admin" 
               element={
-                <ProtectedRoute roles={['admin', 'vendedor']}>
+                <ProtectedRoute roles={['admin']}>
                   <AdminPanel />
                 </ProtectedRoute>
               } 
@@ -79,11 +82,20 @@ function App() {
             />
             
             {/* Rutas de cliente */}
+            {/* Panel Panadero - Registrar producción */}
+            <Route
+              path="/panadero/produccion"
+              element={
+                <ProtectedRoute roles={["panadero"]}>
+                  <ProduccionForm />
+                </ProtectedRoute>
+              }
+            />
             <Route 
               path="/perfil" 
               element={
                 <ProtectedRoute>
-                  <div style={{ textAlign: 'center', padding: '50px' }}>Perfil (próximamente)</div>
+                  <PerfilPanel />
                 </ProtectedRoute>
               } 
             />
@@ -91,7 +103,7 @@ function App() {
               path="/mis-pedidos" 
               element={
                 <ProtectedRoute>
-                  <div style={{ textAlign: 'center', padding: '50px' }}>Mis Pedidos (próximamente)</div>
+                  <MisPedidos />
                 </ProtectedRoute>
               } 
             />

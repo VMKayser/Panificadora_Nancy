@@ -26,6 +26,9 @@ class DatabaseSeeder extends Seeder
             CategoriaSeeder::class,
             ProductoSeeder::class,
             InventarioSeeder::class,
+            // Demo data for local/dev testing (run explicitly or with --force)
+            \Database\Seeders\DemoDataSeeder::class,
+            \Database\Seeders\InitializeEmpleadoPaymentsSeeder::class,
         ]);
     }
 }

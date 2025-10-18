@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Container, Row, Col, Card, Button, Table, Form, InputGroup, Badge, Modal, ListGroup } from 'react-bootstrap';
-import { admin, getProductos } from '../services/api';
+import { admin, getProductos, getMetodosPago } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
 
@@ -9,9 +9,13 @@ export default function VendedorPanel() {
   const [productos, setProductos] = useState([]);
   const [carrito, setCarrito] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showExtrasModal, setShowExtrasModal] = useState(false);
+  const [productoConExtras, setProductoConExtras] = useState(null);
+  const [extrasSeleccionados, setExtrasSeleccionados] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [categoriaFilter, setCategoriaFilter] = useState('');
   const [categorias, setCategorias] = useState([]);
+  const [metodosPago, setMetodosPago] = useState([]);
   
   // Modal de pago
   const [showPagoModal, setShowPagoModal] = useState(false);
@@ -31,15 +35,39 @@ export default function VendedorPanel() {
   useEffect(() => {
     cargarProductos();
     cargarEstadisticas();
+    fetchMetodosPago();
   }, []);
 
+  const fetchMetodosPago = async () => {
+    try {
+      const metodos = await getMetodosPago();
+      const list = Array.isArray(metodos) ? metodos : (metodos.data || []);
+      setMetodosPago(list);
+      if (list.length > 0) {
+        // prefer an 'efectivo' named method, otherwise first
+        const efectivo = list.find(m => /efectivo|cash/i.test(m.nombre || m.name || ''));
+        setMetodoPago(efectivo ? efectivo.id : list[0].id);
+      }
+    } catch (err) {
+      console.warn('No se pudieron cargar métodos de pago, usando valores por defecto', err?.message || err);
+    }
+  };
+
   // Establecer monto por defecto cuando se abre el modal o cambia el método de pago
+  const isMetodoTipo = (metodoOrId, tipo) => {
+    if (!metodoOrId) return false;
+    // find in metodosPago if numeric or string id
+    const found = metodosPago.find(m => m.id === metodoOrId || String(m.id) === String(metodoOrId) || m.codigo === metodoOrId || String(m.nombre || '').toLowerCase() === String(metodoOrId).toLowerCase());
+    const nombre = (found ? (found.nombre || found.name || '') : String(metodoOrId || '')).toLowerCase();
+    if (tipo === 'qr') return /qr|qrcode|codigo/i.test(nombre) || /qr/i.test(found?.codigo || '');
+    if (tipo === 'efectivo') return /efectivo|cash/i.test(nombre) || (found?.codigo === 'efectivo');
+    return false;
+  };
+
   useEffect(() => {
-    if (showPagoModal && metodoPago === 'qr') {
-      // Para QR, establecer el monto exacto
+    if (showPagoModal && isMetodoTipo(metodoPago, 'qr')) {
       setMontoPagado(calcularTotal().toString());
-    } else if (showPagoModal && metodoPago === 'efectivo' && !montoPagado) {
-      // Para efectivo, establecer el total como sugerencia
+    } else if (showPagoModal && isMetodoTipo(metodoPago, 'efectivo') && !montoPagado) {
       setMontoPagado(calcularTotal().toString());
     }
   }, [showPagoModal, metodoPago]);
@@ -74,29 +102,130 @@ export default function VendedorPanel() {
     }
   };
 
-  const agregarAlCarrito = (producto) => {
-    const itemExistente = carrito.find(item => item.id === producto.id);
-    
-    if (itemExistente) {
-      setCarrito(carrito.map(item =>
-        item.id === producto.id
-          ? { ...item, cantidad: item.cantidad + 1 }
-          : item
-      ));
-    } else {
-      setCarrito([...carrito, {
-        id: producto.id,
-        nombre: producto.nombre,
-        precio: parseFloat(producto.precio_minorista),
-        cantidad: 1,
-        producto
-      }]);
+  const agregarAlCarrito = useCallback((producto, cantidad = 1, extras = {}) => {
+    // Comprobar stock principal
+    const prodStock = producto?.inventario?.stock_actual ?? producto?.stock_actual ?? producto?.stock ?? null;
+    if (prodStock !== null && Number(prodStock) <= 0) {
+      toast.error(`${producto.nombre} sin stock`);
+      return;
     }
-    toast.success(`${producto.nombre} agregado`, { autoClose: 1000 });
+    if (prodStock !== null && cantidad > Number(prodStock)) {
+      toast.error(`Cantidad solicitada supera stock disponible (${prodStock})`);
+      return;
+    }
+
+    // Single functional update: add/update main product and extras together to avoid multiple state writes
+    setCarrito(prev => {
+      // start from current prev state
+      const next = [...prev];
+
+      // MAIN PRODUCT
+      const mainIdx = next.findIndex(item => item.id === producto.id && !item.es_extra);
+      if (mainIdx >= 0) {
+        next[mainIdx] = { ...next[mainIdx], cantidad: next[mainIdx].cantidad + cantidad };
+      } else {
+        next.push({
+          id: producto.id,
+          nombre: producto.nombre,
+          precio: parseFloat(producto.precio_minorista) || parseFloat(producto.precio) || 0,
+          cantidad: cantidad,
+          producto,
+          es_extra: false
+        });
+      }
+
+      // EXTRAS
+      if (producto.extras_disponibles && Object.keys(extras).length > 0) {
+        Object.entries(extras).forEach(([index, qty]) => {
+          const extra = producto.extras_disponibles[parseInt(index)];
+          if (!extra || !(parseInt(qty) > 0)) return;
+          const extraStock = extra?.stock_actual ?? extra?.stock ?? null;
+          const unidades = parseInt(qty) || 0;
+          if (extraStock !== null && Number(extraStock) <= 0) {
+            // Skip adding this extra and inform the user
+            toast.info(`${extra.nombre} sin stock, se omitirá`);
+            return;
+          }
+          if (extraStock !== null && unidades > Number(extraStock)) {
+            toast.error(`Cantidad de extra supera stock (${extraStock})`);
+            return;
+          }
+
+          const extraId = `${producto.id}-extra-${index}`;
+          const existingIdx = next.findIndex(i => i.id === extraId);
+          const precioUnitario = parseFloat(extra.precio_unitario ?? extra.precio ?? 0) || 0;
+          const cantidadMinima = parseInt(extra.cantidad_minima ?? extra.cantidad ?? 1) || 1;
+
+          if (existingIdx >= 0) {
+            next[existingIdx] = { ...next[existingIdx], cantidad: next[existingIdx].cantidad + unidades };
+          } else {
+            next.push({
+              id: extraId,
+              nombre: `${producto.nombre} - ${extra.nombre}`,
+              precio: precioUnitario * cantidadMinima,
+              cantidad: unidades,
+              producto: extra,
+              es_extra: true,
+              producto_padre_id: producto.id
+            });
+          }
+        });
+      }
+
+      return next;
+    });
+
+    toast.success(`${producto.nombre} agregado`, { autoClose: 900 });
+  }, []);
+
+  // Fast-add logic: when user clicks a product in the POS grid
+  const handleProductoClick = (producto) => {
+    // If product has extras, open compact modal to choose extras
+    if (producto.extras_disponibles && producto.extras_disponibles.length > 0) {
+      setProductoConExtras(producto);
+      // initialize extrasSeleccionados with zeros
+      const init = {};
+      producto.extras_disponibles.forEach((_, idx) => { init[idx] = 0; });
+      setExtrasSeleccionados(init);
+      setShowExtrasModal(true);
+      return;
+    }
+    // Otherwise add immediately
+    agregarAlCarrito(producto, 1, {});
+  };
+
+  const handleToggleExtra = (index) => {
+    setExtrasSeleccionados(prev => ({ ...prev, [index]: (prev[index] || 0) > 0 ? 0 : 1 }));
+  };
+
+  const handleChangeExtraQty = (index, newQty) => {
+    setExtrasSeleccionados(prev => ({ ...prev, [index]: Math.max(0, parseInt(newQty) || 0) }));
+  };
+
+  const handleConfirmExtras = () => {
+    if (!productoConExtras) return;
+    // Add main product + extras
+    agregarAlCarrito(productoConExtras, 1, extrasSeleccionados);
+    setShowExtrasModal(false);
+    setProductoConExtras(null);
+    setExtrasSeleccionados({});
   };
 
   const eliminarDelCarrito = (productoId) => {
-    setCarrito(carrito.filter(item => item.id !== productoId));
+    // Find the item being removed
+    const item = carrito.find(i => i.id === productoId);
+    if (!item) return;
+
+    if (!item.es_extra) {
+      // If removing a parent product, also remove its extras (by producto_padre_id or id prefix)
+      setCarrito(prev => prev.filter(i => {
+        if (i.es_extra && (i.producto_padre_id === item.id || String(i.id).startsWith(`${item.id}-extra-`))) return false;
+        return i.id !== productoId;
+      }));
+    } else {
+      // Removing an extra only removes that extra
+      setCarrito(prev => prev.filter(i => i.id !== productoId));
+    }
   };
 
   const cambiarCantidad = (productoId, nuevaCantidad) => {
@@ -104,12 +233,15 @@ export default function VendedorPanel() {
       eliminarDelCarrito(productoId);
       return;
     }
-    
-    setCarrito(carrito.map(item =>
+
+    setCarrito(prev => prev.map(item =>
       item.id === productoId
         ? { ...item, cantidad: nuevaCantidad }
         : item
     ));
+
+    // If we decreased a parent product to 0 (handled above), extras are already removed by eliminarDelCarrito.
+    // If we decreased parent to some lower positive number, keep extras unchanged.
   };
 
   const calcularTotal = () => {
@@ -128,10 +260,33 @@ export default function VendedorPanel() {
     return pagado - total;
   };
 
+  // Remove extras that don't have a parent product in the cart
+  const cleanupOrphanExtras = (cart) => {
+    const parentIds = new Set(cart.filter(i => !i.es_extra).map(i => i.id));
+    const cleaned = cart.filter(i => {
+      if (!i.es_extra) return true;
+      // If extra carries producto_padre_id and it's present, keep
+      if (i.producto_padre_id && parentIds.has(i.producto_padre_id)) return true;
+      // Also accept id prefix pattern
+      for (const pid of parentIds) {
+        if (String(i.id).startsWith(`${pid}-extra-`)) return true;
+      }
+      return false;
+    });
+    return { cleaned, removed: cart.length - cleaned.length };
+  };
+
   const procesarVenta = async () => {
     if (carrito.length === 0) {
       toast.error('El carrito está vacío');
       return;
+    }
+
+    // Cleanup orphan extras before processing
+    const { cleaned, removed } = cleanupOrphanExtras(carrito);
+    if (removed > 0) {
+      toast.info(`Se eliminaron ${removed} extra(s) huérfano(s) antes de procesar la venta`);
+      setCarrito(cleaned);
     }
 
     const total = calcularTotal();
@@ -159,22 +314,46 @@ export default function VendedorPanel() {
       const subtotal = calcularSubtotal();
 
       // Crear pedido como venta directa
+      const resolveMetodoPagoId = () => {
+        // If metodoPago is already a numeric id
+        if (typeof metodoPago === 'number') return metodoPago;
+        // If metodoPago is a code or name, try to match
+        if (metodosPago.length > 0) {
+          const byId = metodosPago.find(m => String(m.id) === String(metodoPago));
+          if (byId) return byId.id;
+          const byCodigo = metodosPago.find(m => String(m.codigo) === String(metodoPago) || String(m.codigo).toLowerCase() === String(metodoPago).toLowerCase());
+          if (byCodigo) return byCodigo.id;
+          const byName = metodosPago.find(m => String(m.nombre || '').toLowerCase() === String(metodoPago).toLowerCase());
+          if (byName) return byName.id;
+        }
+        // If still unresolved, return null to cause validation error client-side
+        return null;
+      };
+
+      const metodoPagoIdResolved = resolveMetodoPagoId();
+      if (!metodoPagoIdResolved) {
+        toast.error('No se pudo resolver el método de pago seleccionado. Espera a que se carguen los métodos o recarga la página.');
+        setLoading(false);
+        return;
+      }
+
       const pedidoData = {
         cliente_nombre: clienteNombre || 'Cliente Mostrador',
         cliente_email: `venta_${Date.now()}@local.panificadoranancy.com`,
         cliente_telefono: '00000000',
-        metodo_pago_id: metodoPago === 'efectivo' ? 1 : 3, // 1: Efectivo, 3: QR
+        metodos_pago_id: metodoPagoIdResolved,
         tipo_entrega: 'recoger', // Venta en mostrador
         es_venta_mostrador: true,
         estado: 'entregado', // Marcar como entregado inmediatamente
         descuento_bs: descuento,
-        motivo_descuento: motivoDescuento || null,
-        detalles: carrito.map(item => ({
-          producto_id: item.id,
-          cantidad: item.cantidad,
-          precio_unitario: item.precio,
-          subtotal: item.precio * item.cantidad
-        })),
+  motivo_descuento: motivoDescuento || '',
+        detalles: (cleanupOrphanExtras(carrito).cleaned).map(item => ({
+            // For extras, send the real product id stored in item.producto.id; for main items use item.id
+            producto_id: item.es_extra ? (item.producto?.id || item.id) : item.id,
+            cantidad: item.cantidad,
+            precio_unitario: item.precio,
+            subtotal: item.precio * item.cantidad
+          })),
         subtotal: subtotal,
         total: total
       };
@@ -215,6 +394,17 @@ export default function VendedorPanel() {
     const total = calcularTotal();
     const descuento = parseFloat(descuentoBs) || 0;
     const cambio = montoPagado - total;
+    // Resolve display name for metodoPago (could be 'efectivo', 'qr' or numeric id)
+    let displayMetodo = '';
+    // Normalize displayMetodo safely to avoid calling string methods on numbers or objects
+    if (typeof metodoPago === 'number') {
+      const found = metodosPago.find(m => m.id === metodoPago || String(m.id) === String(metodoPago));
+      if (found) displayMetodo = String(found.nombre || found.name || found.id).toUpperCase();
+      else displayMetodo = String(metodoPago);
+    } else {
+      // Coerce anything else to string first (covers null, undefined, objects)
+      displayMetodo = String(metodoPago || '').toUpperCase();
+    }
     
     ventana.document.write(`
       <html>
@@ -255,11 +445,11 @@ export default function VendedorPanel() {
             ${motivoDescuento ? `<div class="right"><small>${motivoDescuento}</small></div>` : ''}
           ` : ''}
           <div class="right bold">TOTAL: Bs.${total.toFixed(2)}</div>
-          ${metodoPago === 'efectivo' ? `
+          ${displayMetodo === 'EFECTIVO' ? `
             <div class="right">Pagado: Bs.${montoPagado.toFixed(2)}</div>
             <div class="right">Cambio: Bs.${cambio.toFixed(2)}</div>
           ` : `
-            <div class="right">Método: ${metodoPago.toUpperCase()}</div>
+            <div class="right">Método: ${displayMetodo}</div>
           `}
           <hr>
           <div class="center">¡Gracias por su compra!</div>
@@ -331,39 +521,47 @@ export default function VendedorPanel() {
               </Row>
 
               <Row>
-                {productosFiltrados.map(producto => (
-                  <Col key={producto.id} xs={6} md={4} lg={3} className="mb-3">
-                    <Card 
-                      className="h-100 shadow-sm" 
-                      style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
-                      onClick={() => agregarAlCarrito(producto)}
-                      onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-                      onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                    >
-                      <Card.Img
-                        variant="top"
-                        src={
-                          producto.imagenes?.[0]?.url_imagen_completa 
-                            || producto.imagenes?.[0]?.url_imagen 
-                            || 'https://via.placeholder.com/150?text=Sin+Imagen'
-                        }
-                        style={{ height: '120px', objectFit: 'cover' }}
-                        onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.src = 'https://via.placeholder.com/150?text=Sin+Imagen';
-                        }}
-                      />
-                      <Card.Body className="p-2">
-                        <Card.Title style={{ fontSize: '0.9rem' }} className="mb-1">
-                          {producto.nombre}
-                        </Card.Title>
-                        <h5 className="text-success mb-0">
-                          Bs. {parseFloat(producto.precio_minorista).toFixed(2)}
-                        </h5>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                ))}
+                {useMemo(() => {
+                  return productosFiltrados.map(producto => {
+                    const prodStock = producto?.inventario?.stock_actual ?? producto?.stock_actual ?? producto?.stock ?? null;
+                    const isOutOfStock = prodStock !== null && Number(prodStock) <= 0;
+
+                    return (
+                      <Col key={producto.id} xs={6} md={4} lg={3} className="mb-3">
+                        <Card 
+                          className={"h-100 shadow-sm product-card-hover"} 
+                          style={{ cursor: isOutOfStock ? 'not-allowed' : 'pointer' }}
+                          onClick={() => { if (!isOutOfStock) handleProductoClick(producto); }}
+                        >
+                          <Card.Img
+                            variant="top"
+                            src={
+                              producto.imagenes?.[0]?.url_imagen_completa 
+                                || producto.imagenes?.[0]?.url_imagen 
+                                || 'https://via.placeholder.com/150?text=Sin+Imagen'
+                            }
+                            style={{ height: '120px', objectFit: 'cover' }}
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = 'https://via.placeholder.com/150?text=Sin+Imagen';
+                            }}
+                          />
+                          <Card.Body className="p-2">
+                            <div className="d-flex justify-content-between align-items-start">
+                              <Card.Title style={{ fontSize: '0.9rem' }} className="mb-1">
+                                {producto.nombre}
+                              </Card.Title>
+                              {isOutOfStock && <Badge bg="danger">Sin stock</Badge>}
+                            </div>
+                            <h5 className="text-success mb-0">
+                              Bs. {(parseFloat(String(producto.precio_minorista ?? producto.precio ?? 0)) || 0).toFixed(2)}
+                            </h5>
+                          </Card.Body>
+                        </Card>
+                      </Col>
+                    );
+                  });
+                }, [productosFiltrados, handleProductoClick])}
               </Row>
             </Card.Body>
           </Card>
@@ -383,56 +581,65 @@ export default function VendedorPanel() {
                 </div>
               ) : (
                 <ListGroup variant="flush">
-                  {carrito.map(item => (
-                    <ListGroup.Item key={item.id} className="px-0">
-                      <Row className="align-items-center">
-                        <Col xs={6}>
-                          <small className="d-block">{item.nombre}</small>
-                          <strong className="text-success">
-                            Bs. {item.precio.toFixed(2)}
-                          </strong>
-                        </Col>
-                        <Col xs={4}>
-                          <InputGroup size="sm">
-                            <Button
-                              variant="outline-secondary"
-                              size="sm"
-                              onClick={() => cambiarCantidad(item.id, item.cantidad - 1)}
-                            >
-                              -
-                            </Button>
-                            <Form.Control
-                              type="number"
-                              min="1"
-                              value={item.cantidad}
-                              onChange={(e) => cambiarCantidad(item.id, parseInt(e.target.value))}
-                              className="text-center"
-                              style={{ maxWidth: '50px' }}
-                            />
-                            <Button
-                              variant="outline-secondary"
-                              size="sm"
-                              onClick={() => cambiarCantidad(item.id, item.cantidad + 1)}
-                            >
-                              +
-                            </Button>
-                          </InputGroup>
-                        </Col>
-                        <Col xs={2} className="text-end">
-                          <Button
-                            variant="outline-danger"
-                            size="sm"
-                            onClick={() => eliminarDelCarrito(item.id)}
-                          >
-                            🗑️
-                          </Button>
-                        </Col>
-                      </Row>
-                      <div className="text-end mt-2">
-                        <strong>Subtotal: Bs. {(item.precio * item.cantidad).toFixed(2)}</strong>
+                  {(() => {
+                    // Build a parent -> children map
+                    const parents = carrito.filter(i => !i.es_extra);
+                    const extrasMap = {};
+                    carrito.filter(i => i.es_extra).forEach(ex => {
+                      const pid = ex.producto_padre_id || String(ex.id).split('-extra-')[0];
+                      if (!extrasMap[pid]) extrasMap[pid] = [];
+                      extrasMap[pid].push(ex);
+                    });
+
+                    return parents.map(parent => (
+                      <div key={parent.id}>
+                        <ListGroup.Item className="px-0">
+                          <Row className="align-items-center">
+                            <Col xs={6}>
+                              <small className="d-block">{parent.nombre}</small>
+                              <strong className="text-success">
+                                Bs. {parent.precio.toFixed(2)}
+                              </strong>
+                            </Col>
+                            <Col xs={4}>
+                              <InputGroup size="sm">
+                                <Button variant="outline-secondary" size="sm" onClick={() => cambiarCantidad(parent.id, parent.cantidad - 1)}>-</Button>
+                                <Form.Control type="number" min="1" value={parent.cantidad} onChange={(e) => cambiarCantidad(parent.id, parseInt(e.target.value))} className="text-center" style={{ maxWidth: '50px' }} />
+                                <Button variant="outline-secondary" size="sm" onClick={() => cambiarCantidad(parent.id, parent.cantidad + 1)}>+</Button>
+                              </InputGroup>
+                            </Col>
+                            <Col xs={2} className="text-end">
+                              <Button variant="outline-danger" size="sm" onClick={() => eliminarDelCarrito(parent.id)}>🗑️</Button>
+                            </Col>
+                          </Row>
+                          <div className="text-end mt-2"><strong>Subtotal: Bs. {(parent.precio * parent.cantidad).toFixed(2)}</strong></div>
+                        </ListGroup.Item>
+
+                        {/* Render children extras, if any */}
+                        {(extrasMap[parent.id] || []).map(child => (
+                          <ListGroup.Item key={child.id} className="px-0" style={{ paddingLeft: '24px', backgroundColor: '#fafafa' }}>
+                            <Row className="align-items-center">
+                              <Col xs={6}>
+                                <small className="d-block">↳ {child.nombre}</small>
+                                <small className="text-muted">(extra)</small>
+                              </Col>
+                              <Col xs={4}>
+                                <InputGroup size="sm">
+                                  <Button variant="outline-secondary" size="sm" onClick={() => cambiarCantidad(child.id, child.cantidad - 1)}>-</Button>
+                                  <Form.Control type="number" min="1" value={child.cantidad} onChange={(e) => cambiarCantidad(child.id, parseInt(e.target.value))} className="text-center" style={{ maxWidth: '50px' }} />
+                                  <Button variant="outline-secondary" size="sm" onClick={() => cambiarCantidad(child.id, child.cantidad + 1)}>+</Button>
+                                </InputGroup>
+                              </Col>
+                              <Col xs={2} className="text-end">
+                                <Button variant="outline-danger" size="sm" onClick={() => eliminarDelCarrito(child.id)}>🗑️</Button>
+                              </Col>
+                            </Row>
+                            <div className="text-end mt-2"><strong>Subtotal: Bs. {(child.precio * child.cantidad).toFixed(2)}</strong></div>
+                          </ListGroup.Item>
+                        ))}
                       </div>
-                    </ListGroup.Item>
-                  ))}
+                    ));
+                  })()}
                 </ListGroup>
               )}
             </Card.Body>
@@ -490,6 +697,43 @@ export default function VendedorPanel() {
         </Col>
       </Row>
 
+      {/* Compact Extras Modal for quick POS additions */}
+      <Modal show={showExtrasModal} onHide={() => setShowExtrasModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title style={{ fontSize: '1rem' }}>{productoConExtras ? productoConExtras.nombre : 'Extras'}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {productoConExtras && productoConExtras.extras_disponibles && productoConExtras.extras_disponibles.length > 0 ? (
+            <div>
+              <p className="mb-2"><small>Selecciona extras rápidos (toca para activar):</small></p>
+              {productoConExtras.extras_disponibles.map((extra, idx) => (
+                <div key={idx} className="d-flex align-items-center justify-content-between py-2 border-bottom">
+                  <div className="d-flex align-items-center gap-2">
+                    <input type="checkbox" checked={(extrasSeleccionados[idx] || 0) > 0} onChange={() => handleToggleExtra(idx)} />
+                    <div>
+                      <div className="fw-semibold">{extra.nombre}</div>
+                      <div className="small text-muted">{extra.descripcion || ''}</div>
+                    </div>
+                  </div>
+                  <div className="d-flex align-items-center gap-2">
+                    <button className="btn btn-sm btn-outline-secondary" onClick={() => handleChangeExtraQty(idx, (extrasSeleccionados[idx] || 0) - 1)}>-</button>
+                    <div style={{ minWidth: '28px', textAlign: 'center' }}>{extrasSeleccionados[idx] || 0}</div>
+                    <button className="btn btn-sm btn-outline-secondary" onClick={() => handleChangeExtraQty(idx, (extrasSeleccionados[idx] || 0) + 1)}>+</button>
+                    <div className="ms-2 fw-bold text-success">Bs {(parseFloat(extra.precio_unitario ?? extra.precio ?? 0) || 0).toFixed(2)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div>No hay extras disponibles para este producto.</div>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowExtrasModal(false)}>Cancelar</Button>
+          <Button variant="primary" onClick={handleConfirmExtras}>Agregar</Button>
+        </Modal.Footer>
+      </Modal>
+
       {/* MODAL DE PAGO */}
       <Modal show={showPagoModal} onHide={() => setShowPagoModal(false)} centered>
         <Modal.Header closeButton style={{ backgroundColor: '#8b6f47', color: 'white' }}>
@@ -543,7 +787,12 @@ export default function VendedorPanel() {
               <Form.Label>Método de Pago</Form.Label>
               <Form.Select
                 value={metodoPago}
-                onChange={(e) => setMetodoPago(e.target.value)}
+                    onChange={(e) => {
+                      // try to set numeric id when option value looks numeric
+                      const val = e.target.value;
+                      if (/^\d+$/.test(val)) setMetodoPago(Number(val));
+                      else setMetodoPago(val);
+                    }}
               >
                 <option value="efectivo">💵 Efectivo</option>
                 <option value="qr">📱 QR</option>

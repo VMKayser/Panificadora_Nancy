@@ -44,7 +44,9 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
         precio_mayorista: producto.precio_mayorista || '',
         cantidad_minima_mayoreo: producto.cantidad_minima_mayoreo || '10',
         unidad_medida: producto.unidad_medida || 'unidad',
-        cantidad: producto.cantidad || '1',
+        cantidad: (producto.inventario && producto.inventario.stock_actual !== undefined)
+          ? String(producto.inventario.stock_actual)
+          : '1',
         presentacion: producto.presentacion || '',
         es_de_temporada: producto.es_de_temporada || false,
         esta_activo: producto.esta_activo !== undefined ? producto.esta_activo : true,
@@ -161,22 +163,23 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
       // Procesar extras para asegurar que los precios sean números
       const extrasProcesados = formData.tiene_extras 
         ? formData.extras_disponibles.map(extra => ({
-            nombre: extra.nombre,
+            nombre: (extra.nombre || '').trim(),
             precio: parseFloat(extra.precio) || 0
-          }))
-        : [];
+          })).filter(e => e.nombre !== '') // remove empty-named extras
+        : null; // send null when not applicable so backend can leave existing value
 
       const dataToSend = {
         ...formData,
         imagenes: imagenes,
         precio_minorista: parseFloat(formData.precio_minorista),
         precio_mayorista: formData.precio_mayorista ? parseFloat(formData.precio_mayorista) : null,
-        cantidad: formData.cantidad ? parseFloat(formData.cantidad) : null,
+  cantidad: formData.cantidad ? parseFloat(formData.cantidad) : 0,
         limite_produccion: formData.limite_produccion && parseInt(formData.limite_produccion) > 0 
           ? parseInt(formData.limite_produccion) 
           : null,
         tiempo_anticipacion: formData.tiempo_anticipacion ? parseInt(formData.tiempo_anticipacion) : null,
-        extras_disponibles: extrasProcesados,
+  // Only include extras_disponibles when tiene_extras is true (or explicitly empty array when enabled)
+  ...(formData.tiene_extras ? { extras_disponibles: extrasProcesados || [] } : { tiene_extras: false, extras_disponibles: null }),
       };
 
       if (producto) {
@@ -299,28 +302,17 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
                   onChange={handleInputChange}
                 >
                   <option value="unidad">Unidad</option>
+                  <option value="cm">Centímetro (cm)</option>
                   <option value="docena">Docena</option>
-                  <option value="kilo">Kilo</option>
-                  <option value="gramo">Gramo</option>
-                  <option value="litro">Litro</option>
                   <option value="paquete">Paquete</option>
+                  <option value="gramos">Gramos</option>
+                  <option value="kilogramos">Kilogramos</option>
                   <option value="arroba">Arroba</option>
+                  <option value="porcion">Porción</option>
                 </Form.Select>
               </Form.Group>
             </Col>
-            <Col md={6}>
-              <Form.Group className="mb-3">
-                <Form.Label>Cantidad</Form.Label>
-                <Form.Control
-                  type="number"
-                  step="0.01"
-                  name="cantidad"
-                  value={formData.cantidad}
-                  onChange={handleInputChange}
-                  placeholder="1"
-                />
-              </Form.Group>
-            </Col>
+            {/* NOTE: cantidad is now managed by inventory (server-side). Hide it from the admin form to avoid confusion. */}
           </Row>
 
           <Form.Group className="mb-3">

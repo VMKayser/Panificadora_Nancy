@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Card } from 'react-bootstrap';
 import { useCart } from '../context/CartContext';
 import { toast } from 'react-toastify';
@@ -12,6 +12,11 @@ const ProductCard = ({ producto }) => {
 
   const handleAddToCart = (e) => {
     e.stopPropagation(); // Evitar que se abra el modal
+    const available = producto?.inventario?.stock_actual ?? producto?.stock_actual ?? producto?.stock ?? null;
+    if (available !== null && Number(available) <= 0) {
+      toast.error('Sin stock');
+      return;
+    }
     addToCart(producto, 1);
     toast.success(`✅ ${producto.nombre} agregado al carrito!`, {
       position: "bottom-right",
@@ -44,7 +49,7 @@ const ProductCard = ({ producto }) => {
         />
         <div className={styles.cardBody}>
           <h5 className={styles.title}>{producto.nombre}</h5>
-          {producto.presentacion && (
+          {String(producto.presentacion ?? '').trim() !== '' && (
             <p className={styles.presentation}>
               <Package size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
               {producto.presentacion}
@@ -54,15 +59,21 @@ const ProductCard = ({ producto }) => {
           
           <div className={styles.price}>
             <div className={styles.priceH5}>
-              Bs. {parseFloat(producto.precio_minorista).toFixed(2)}
+              Bs. {(parseFloat(String(producto.precio_minorista ?? producto.precio ?? 0)) || 0).toFixed(2)}
             </div>
-            <button 
-              className={styles.addBtn}
-              onClick={handleAddToCart}
-              title="Agregar al carrito"
-            >
-              <Plus size={20} />
-            </button>
+            { (producto?.inventario?.stock_actual ?? producto?.stock_actual ?? producto?.stock ?? null) <= 0 ? (
+              <button className={styles.addBtn} disabled title="Sin stock">
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>Sin stock</span>
+              </button>
+            ) : (
+              <button 
+                className={styles.addBtn}
+                onClick={handleAddToCart}
+                title="Agregar al carrito"
+              >
+                <Plus size={20} />
+              </button>
+            )}
           </div>
           
           {producto.requiere_tiempo_anticipacion && (
@@ -83,4 +94,4 @@ const ProductCard = ({ producto }) => {
   );
 };
 
-export default ProductCard;
+export default memo(ProductCard);

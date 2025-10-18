@@ -87,9 +87,25 @@ export const crearPedido = async (pedidoData) => {
   return response.data;
 };
 
+// Crear producción (interfaz panadero)
+export const crearProduccion = async (produccionData) => {
+  const response = await api.post('/producciones', produccionData);
+  return response.data;
+};
+
 export const getMetodosPago = async () => {
   const response = await api.get('/metodos-pago');
   return response.data;
+};
+
+// Helper para construir URLs a assets subidos en el backend (storage)
+export const assetBase = () => {
+  // Si la VITE_API_URL apunta a /api, quitar el sufijo para obtener el host
+  const env = import.meta?.env?.VITE_API_URL || '';
+  if (!env) return '';
+  // Si termina en /api, removerlo
+  if (env.endsWith('/api')) return env.replace(/\/api$/, '');
+  return env.replace(/\/$/, '');
 };
 
 // ============================================
@@ -169,6 +185,18 @@ export const auth = {
   // Actualizar perfil
   updateProfile: async (profileData) => {
     const response = await api.put('/profile', profileData);
+    return response.data;
+  },
+
+  // Obtener pedidos del usuario actual
+  getMisPedidos: async () => {
+    const response = await api.get('/mis-pedidos');
+    return response.data;
+  },
+
+  // Obtener detalle de un pedido específico
+  getMiPedidoDetalle: async (id) => {
+    const response = await api.get(`/mis-pedidos/${id}`);
     return response.data;
   },
 };
@@ -334,6 +362,12 @@ export const admin = {
     return response.data;
   },
 
+  // Crear usuario (administración)
+  crearUsuario: async (userData) => {
+    const response = await api.post('/admin/usuarios', userData);
+    return response.data;
+  },
+
   // Actualizar cliente
   actualizarCliente: async (id, clienteData) => {
     const response = await api.put(`/admin/clientes/${id}`, clienteData);
@@ -380,6 +414,16 @@ export const admin = {
 
   crearPanadero: async (panaderoData) => {
     const response = await api.post('/admin/panaderos', panaderoData);
+    return response.data;
+  },
+  // Empleado pagos (history + create)
+  crearEmpleadoPago: async (pagoData) => {
+    const response = await api.post('/admin/empleado-pagos', pagoData);
+    return response.data;
+  },
+
+  listarEmpleadoPagos: async (params = {}) => {
+    const response = await api.get('/admin/empleado-pagos', { params });
     return response.data;
   },
 
@@ -553,6 +597,15 @@ export const admin = {
 
   actualizarRolUsuario: async (id, role) => {
     const response = await api.put(`/admin/usuarios/${id}`, { role });
+    return response.data;
+  },
+  // Actualizar usuario (Admin user record)
+  actualizarUsuario: async (id, data) => {
+    const response = await api.put(`/admin/usuarios/${id}`, data);
+    return response.data;
+  },
+  eliminarUsuario: async (id) => {
+    const response = await api.delete(`/admin/usuarios/${id}`);
     return response.data;
   },
 };

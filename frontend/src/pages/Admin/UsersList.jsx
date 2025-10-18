@@ -296,7 +296,7 @@ const UsersList = () => {
                     <td>
                       <div className="user-info">
                         <div className="user-avatar">
-                          {usuario.name?.charAt(0).toUpperCase() || 'U'}
+                          {(String(usuario.name || '').charAt(0).toUpperCase()) || 'U'}
                         </div>
                         <strong>{usuario.name}</strong>
                       </div>

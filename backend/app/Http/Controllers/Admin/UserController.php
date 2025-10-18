@@ -4,9 +4,12 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 
 class UserController extends Controller
 {
@@ -26,9 +29,14 @@ class UserController extends Controller
             });
         }
 
-        // Filtro por rol
+        // Filtro por rol: preferir el pivot `roles`, pero mantener fallback a la columna `users.role`
         if ($request->has('role') && $request->role) {
-            $query->where('role', $request->role);
+            $role = $request->role;
+            $query->where(function ($q) use ($role) {
+                $q->whereHas('roles', function ($r) use ($role) {
+                    $r->where('name', $role);
+                })->orWhere('role', $role);
+            });
         }
 
         // Ordenar por fecha de creación (más recientes primero)
@@ -70,8 +78,11 @@ class UserController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:6',
-            'role' => 'required|in:admin,vendedor,panadero,cliente'
+            // password optional: admin may provide or let system generate
+            'password' => 'sometimes|nullable|string|min:6',
+            'role' => 'required|in:admin,vendedor,panadero,cliente',
+            // allow admin to mark email as verified on creation
+            'mark_verified' => 'sometimes|boolean'
         ]);
 
         if ($validator->fails()) {
@@ -81,17 +92,38 @@ class UserController extends Controller
             ], 422);
         }
 
-        $usuario = User::create([
+        // Choose password: provided by admin or generate securely
+        $rawPassword = $request->filled('password') ? $request->password : Str::random(12);
+
+        $usuarioData = [
             'name' => $request->name,
             'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'role' => $request->role
-        ]);
+            'password' => Hash::make($rawPassword),
+            'role' => $request->role,
+        ];
+
+        if ($request->boolean('mark_verified', false)) {
+            $usuarioData['email_verified_at'] = now();
+        }
+
+        // Create the user; observers are allowed here because this is the central user-management endpoint
+        $usuario = User::create($usuarioData);
+
+        // Ensure pivot role is set to match the requested role
+        if ($request->filled('role')) {
+            $roleModel = Role::where('name', $request->role)->first();
+            if ($roleModel) {
+                $usuario->roles()->sync([$roleModel->id]);
+            }
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Usuario creado exitosamente',
-            'data' => $usuario
+            'data' => $usuario,
+            // Return generated password only when admin did not provide one (for admin display/copy).
+            // Note: in a real production system you would send this securely (email) or force password reset.
+            'generated_password' => !$request->filled('password') ? $rawPassword : null
         ], 201);
     }
 
@@ -110,10 +142,11 @@ class UserController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'name' => 'sometimes|required|string|max:255',
-            'email' => 'sometimes|required|email|unique:users,email,' . $id,
+            'name' => 'sometimes|string|max:255',
+            'email' => 'sometimes|email|unique:users,email,' . $id,
             'password' => 'sometimes|nullable|string|min:6',
-            'role' => 'sometimes|required|in:admin,vendedor,panadero,cliente'
+            // Make role optional on partial updates: frontend may call update without sending role
+            'role' => 'sometimes|in:admin,vendedor,panadero,cliente'
         ]);
 
         if ($validator->fails()) {
@@ -138,6 +171,11 @@ class UserController extends Controller
 
         if ($request->has('role')) {
             $usuario->role = $request->role;
+            // Sync pivot table so both sources-of-truth stay consistent
+            $roleModel = Role::where('name', $request->role)->first();
+            if ($roleModel) {
+                $usuario->roles()->sync([$roleModel->id]);
+            }
         }
 
         $usuario->save();
@@ -199,7 +237,7 @@ class UserController extends Controller
         }
 
         // No permitir eliminar al usuario autenticado
-        if ($usuario->id === auth()->id()) {
+    if ($usuario->getKey() === Auth::id()) {
             return response()->json([
                 'success' => false,
                 'message' => 'No puedes eliminar tu propio usuario'
@@ -219,14 +257,27 @@ class UserController extends Controller
      */
     public function estadisticas()
     {
-        $stats = [
-            'total' => User::count(),
-            'admins' => User::where('role', 'admin')->count(),
-            'vendedores' => User::where('role', 'vendedor')->count(),
-            'panaderos' => User::where('role', 'panadero')->count(),
-            'clientes' => User::where('role', 'cliente')->count(),
-            'recientes' => User::orderBy('created_at', 'desc')->take(5)->get()
-        ];
+                $stats = [
+                        'total' => User::count(),
+                        // Count using pivot when available, fallback to users.role column
+                        'admins' => User::where(function ($q) {
+                                $q->whereHas('roles', function ($r) { $r->where('name', 'admin'); })
+                                    ->orWhere('role', 'admin');
+                        })->count(),
+                        'vendedores' => User::where(function ($q) {
+                                $q->whereHas('roles', function ($r) { $r->where('name', 'vendedor'); })
+                                    ->orWhere('role', 'vendedor');
+                        })->count(),
+                        'panaderos' => User::where(function ($q) {
+                                $q->whereHas('roles', function ($r) { $r->where('name', 'panadero'); })
+                                    ->orWhere('role', 'panadero');
+                        })->count(),
+                        'clientes' => User::where(function ($q) {
+                                $q->whereHas('roles', function ($r) { $r->where('name', 'cliente'); })
+                                    ->orWhere('role', 'cliente');
+                        })->count(),
+                        'recientes' => User::orderBy('created_at', 'desc')->take(5)->get()
+                ];
 
         return response()->json([
             'success' => true,
@@ -239,9 +290,10 @@ class UserController extends Controller
      */
     public function usuariosDisponiblesVendedor()
     {
-        $usuarios = User::where('role', 'vendedor')
-            ->whereDoesntHave('vendedor')
-            ->get();
+        // Listar usuarios que aún no tienen asignado un registro en la tabla `vendedores`
+        // (disponibles para ser creados como vendedores). No filtramos por columna `role` aquí;
+        // la relación `vendedor` determina la disponibilidad.
+        $usuarios = User::whereDoesntHave('vendedor')->get();
 
         return response()->json([
             'success' => true,

@@ -16,6 +16,7 @@ class Vendedor extends Model
         'user_id',
         'codigo_vendedor',
         'comision_porcentaje',
+        'comision_acumulada',
         'descuento_maximo_bs',
         'puede_dar_descuentos',
         'puede_cancelar_ventas',
@@ -30,6 +31,7 @@ class Vendedor extends Model
 
     protected $casts = [
         'comision_porcentaje' => 'decimal:2',
+        'comision_acumulada' => 'decimal:2',
         'descuento_maximo_bs' => 'decimal:2',
         'puede_dar_descuentos' => 'boolean',
         'puede_cancelar_ventas' => 'boolean',

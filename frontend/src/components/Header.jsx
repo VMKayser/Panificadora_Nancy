@@ -60,9 +60,10 @@ const Header = () => {
               ℹ️ Nosotros
             </Nav.Link>
             
-            {/* Carrito con badge */}
-            <Nav.Link href="#" onClick={handleOpenCart} className="mx-2 position-relative">
-              🛒 Carrito
+            {/* Carrito con badge - siempre visible en móvil (d-flex en sm) */}
+            <Nav.Link href="#" onClick={handleOpenCart} className="mx-2 position-relative d-flex align-items-center">
+              <span className="d-md-none">🛒</span>
+              <span className="d-none d-md-inline">🛒 Carrito</span>
               {cartItemsCount > 0 && (
                 <Badge 
                   bg="danger" 
@@ -84,8 +85,8 @@ const Header = () => {
               </Nav.Link>
             )}
 
-            {/* Admin Button - Solo para admin y vendedor */}
-            {(isAdmin || isVendedor) && (
+            {/* Admin Button - Solo para admin */}
+            {isAdmin && (
               <Nav.Link as={Link} to="/admin" className="mx-2">
                 ⚙️ Panel Admin
               </Nav.Link>

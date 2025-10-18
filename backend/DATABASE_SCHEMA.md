@@ -88,6 +88,9 @@ Este documento resume las tablas principales creadas por las migraciones en `dat
 - motivo_descuento (text, nullable)
 - created_at, updated_at, deleted_at (softDeletes)
 
+Note: Se añadió recientemente la columna `stock_descargado` (tinyint(1), default 0) usada para marcar si
+el stock ya fue descontado para este pedido y evitar descuentos duplicados al confirmar/entregar pedidos.
+
 
 ## detalle_pedidos
 - id (PK)

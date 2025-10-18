@@ -180,7 +180,7 @@ class MateriaPrimaController extends Controller
             'cantidad' => 'required|numeric|min:0.001',
             'costo_unitario' => 'required|numeric|min:0',
             'numero_factura' => 'nullable|string|max:100',
-            'observaciones' => 'nullable|string'
+            'observaciones' => 'string'
         ]);
 
         if ($validator->fails()) {

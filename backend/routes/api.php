@@ -13,6 +13,7 @@ use App\Http\Controllers\MateriaPrimaController;
 use App\Http\Controllers\RecetaController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\InventarioController;
+use App\Http\Controllers\Api\EmpleadoPagoController;
 
 // ============================================
 // RUTAS DE AUTENTICACIÓN (Públicas con Rate Limiting)
@@ -43,6 +44,12 @@ Route::get('/productos/{id}', [ProductoController::class, 'show']);
 // Rutas de pedidos
 Route::post('/pedidos', [PedidoController::class, 'store']);
 Route::get('/metodos-pago', [PedidoController::class, 'metodosPago']);
+
+// Rutas protegidas de pedidos del cliente
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/mis-pedidos', [PedidoController::class, 'misPedidos']);
+    Route::get('/mis-pedidos/{id}', [PedidoController::class, 'miPedidoDetalle']);
+});
 
 // Rutas de categorías
 Route::get('/categorias', [CategoriaController::class, 'index']);
@@ -132,6 +139,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,vendedor'])->gro
         Route::post('/inicializar-defecto', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'inicializarDefecto']);
         Route::get('/{clave}/valor', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'getValor']);
     });
+        // empleado payments
+        Route::get('empleado-pagos', [EmpleadoPagoController::class, 'index']);
+        Route::post('empleado-pagos', [EmpleadoPagoController::class, 'store']);
 
     // Gestión de categorías
     Route::get('/categorias', [\App\Http\Controllers\Api\AdminCategoriaController::class, 'index']);
@@ -226,12 +236,12 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin'])->group(functi
 
     // ===== GESTIÓN DE VENDEDORES =====
     Route::prefix('empleados/vendedores')->group(function () {
-        Route::get('/', [\App\Http\Controllers\Admin\VendedorController::class, 'index']);
-        Route::post('/', [\App\Http\Controllers\Admin\VendedorController::class, 'store']);
+        Route::get('/', [\App\Http\Controllers\Api\AdminVendedorController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\AdminVendedorController::class, 'store']);
         Route::get('/estadisticas', [\App\Http\Controllers\Admin\VendedorController::class, 'estadisticas']);
-        Route::get('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'show']);
-        Route::put('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'update']);
-        Route::delete('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'destroy']);
+        Route::get('/{id}', [\App\Http\Controllers\Api\AdminVendedorController::class, 'show']);
+        Route::put('/{id}', [\App\Http\Controllers\Api\AdminVendedorController::class, 'update']);
+        Route::delete('/{id}', [\App\Http\Controllers\Api\AdminVendedorController::class, 'destroy']);
         Route::post('/{id}/cambiar-estado', [\App\Http\Controllers\Admin\VendedorController::class, 'cambiarEstado']);
         Route::get('/{id}/reporte-ventas', [\App\Http\Controllers\Admin\VendedorController::class, 'reporteVentas']);
     });

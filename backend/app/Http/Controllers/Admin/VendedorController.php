@@ -72,7 +72,7 @@ class VendedorController extends Controller
             'puede_cancelar_ventas' => 'boolean',
             'turno' => 'required|in:mañana,tarde,noche,rotativo',
             'fecha_ingreso' => 'required|date',
-            'observaciones' => 'nullable|string'
+            'observaciones' => 'sometimes|nullable|string'
         ], [
             'user_id.required' => 'Debe seleccionar un usuario',
             'user_id.unique' => 'Este usuario ya está registrado como vendedor',
@@ -117,7 +117,7 @@ class VendedorController extends Controller
             'turno' => 'sometimes|required|in:mañana,tarde,noche,rotativo',
             'fecha_ingreso' => 'sometimes|required|date',
             'estado' => 'sometimes|required|in:activo,inactivo,suspendido',
-            'observaciones' => 'nullable|string'
+            'observaciones' => 'sometimes|nullable|string'
         ]);
 
         if ($validator->fails()) {

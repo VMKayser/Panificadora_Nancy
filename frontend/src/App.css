@@ -40,3 +40,19 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Product card hover effect used in POS grid. Uses transform for subtle scale on hover.
+   Respects prefers-reduced-motion for accessibility. */
+.product-card-hover {
+  transition: transform 0.2s;
+}
+.product-card-hover:hover {
+  transform: scale(1.05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-card-hover, .product-card-hover:hover {
+    transition: none;
+    transform: none;
+  }
+}

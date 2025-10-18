@@ -17,26 +17,48 @@ class InventarioController extends Controller
      */
     public function dashboard()
     {
-        $inventario = InventarioProductoFinal::with('producto')
-            ->get();
+        // Build a list that includes all active products, merging with
+        // existing InventarioProductoFinal rows. This uses a single query to
+        // fetch productos and left join inventario to avoid N+1 and to ensure
+        // every active product appears in the dashboard.
+    $productos = DB::table('productos as p')
+            ->leftJoin('inventario_productos_finales as i', 'p.id', '=', 'i.producto_id')
+            ->where('p.esta_activo', true)
+            ->select(
+                'p.id as producto_id',
+                'p.nombre as producto_nombre',
+                'i.stock_actual',
+                'i.stock_minimo',
+                'i.costo_promedio'
+            )
+            ->get()
+            ->map(function ($row) {
+                return [
+                    'producto_id' => $row->producto_id,
+                    'producto' => $row->producto_nombre,
+                    'stock_actual' => (float) ($row->stock_actual ?? 0),
+                    'stock_minimo' => (float) ($row->stock_minimo ?? 0),
+                    'costo_promedio' => (float) ($row->costo_promedio ?? 0),
+                ];
+            });
 
         $resumen = [
-            'productos_en_stock' => $inventario->where('stock_actual', '>', 0)->count(),
-            'productos_stock_bajo' => $inventario->filter(function ($item) {
-                return $item->stock_actual <= $item->stock_minimo && $item->stock_actual > 0;
+            'productos_en_stock' => $productos->where('stock_actual', '>', 0)->count(),
+            'productos_stock_bajo' => $productos->filter(function ($item) {
+                return $item['stock_actual'] <= $item['stock_minimo'] && $item['stock_actual'] > 0;
             })->count(),
-            'productos_agotados' => $inventario->where('stock_actual', 0)->count(),
-            'valor_total_inventario' => $inventario->sum(function ($item) {
-                return $item->stock_actual * $item->costo_promedio;
+            'productos_agotados' => $productos->where('stock_actual', 0)->count(),
+            'valor_total_inventario' => $productos->sum(function ($item) {
+                return $item['stock_actual'] * $item['costo_promedio'];
             }),
-            'alertas' => $inventario->filter(function ($item) {
-                return $item->stock_actual <= $item->stock_minimo;
+            'alertas' => $productos->filter(function ($item) {
+                return $item['stock_actual'] <= $item['stock_minimo'];
             })->map(function ($item) {
                 return [
-                    'producto' => $item->producto->nombre,
-                    'stock_actual' => $item->stock_actual,
-                    'stock_minimo' => $item->stock_minimo,
-                    'nivel' => $item->stock_actual == 0 ? 'agotado' : 'bajo'
+                    'producto' => $item['producto'],
+                    'stock_actual' => $item['stock_actual'],
+                    'stock_minimo' => $item['stock_minimo'],
+                    'nivel' => $item['stock_actual'] == 0 ? 'agotado' : 'bajo'
                 ];
             })->values()
         ];
@@ -49,20 +71,45 @@ class InventarioController extends Controller
      */
     public function productosFinales(Request $request)
     {
-        $query = InventarioProductoFinal::with('producto');
+        // Instead of returning only existing inventory records, return a
+        // list that includes every active product. Merge inventory data if
+        // present; otherwise default stock values to zero.
+    $query = DB::table('productos as p')
+            ->leftJoin('inventario_productos_finales as i', 'p.id', '=', 'i.producto_id')
+            ->where('p.esta_activo', true)
+            ->select(
+                'p.id as producto_id',
+                'p.nombre as producto_nombre',
+                'i.stock_actual',
+                'i.stock_minimo',
+                'i.costo_promedio',
+                'i.fecha_elaboracion',
+                'i.fecha_vencimiento'
+            );
 
-        // Filtros
+        // Apply filters in terms of inventory values (treat missing inventory
+        // rows as zeros)
         if ($request->has('stock_bajo')) {
-            $query->whereRaw('stock_actual <= stock_minimo');
+            $query->whereRaw('COALESCE(i.stock_actual,0) <= COALESCE(i.stock_minimo,0)');
         }
 
         if ($request->has('agotados')) {
-            $query->where('stock_actual', 0);
+            $query->whereRaw('COALESCE(i.stock_actual,0) = 0');
         }
 
-        $inventario = $query->orderBy('stock_actual', 'asc')->get();
+        $rows = $query->orderByRaw('COALESCE(i.stock_actual,0) asc')->get()->map(function ($row) {
+            return [
+                'producto_id' => $row->producto_id,
+                'producto' => $row->producto_nombre,
+                'stock_actual' => (float) ($row->stock_actual ?? 0),
+                'stock_minimo' => (float) ($row->stock_minimo ?? 0),
+                'costo_promedio' => (float) ($row->costo_promedio ?? 0),
+                'fecha_elaboracion' => $row->fecha_elaboracion ?? null,
+                'fecha_vencimiento' => $row->fecha_vencimiento ?? null,
+            ];
+        });
 
-        return response()->json($inventario);
+        return response()->json($rows);
     }
 
     /**

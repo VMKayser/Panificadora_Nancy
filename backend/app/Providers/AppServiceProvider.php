@@ -8,6 +8,10 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Observers\UserObserver;
+use App\Models\Producto;
+use App\Observers\ProductoObserver;
+use App\Models\Pedido;
+use App\Observers\PedidoObserver;
 use App\Http\Middleware\SecurityHeaders;
 
 class AppServiceProvider extends ServiceProvider
@@ -25,8 +29,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Registrar observer para User
+        // Registrar observers
         User::observe(UserObserver::class);
+        Producto::observe(ProductoObserver::class);
+        Pedido::observe(PedidoObserver::class);
+        
         // Register SecurityHeaders middleware into the 'api' middleware group if router is available
         // and define a sensible rate limiter for API routes.
         $this->app->afterResolving(Router::class, function (Router $router) {

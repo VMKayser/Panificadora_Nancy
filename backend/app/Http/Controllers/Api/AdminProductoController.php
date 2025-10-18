@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Cache;
 use App\Models\Producto;
 use App\Models\ImagenProducto;
 use Illuminate\Http\Request;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use App\Models\InventarioProductoFinal;
 
 class AdminProductoController extends Controller
 {
@@ -18,7 +20,12 @@ class AdminProductoController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Producto::with(['categoria', 'imagenes']);
+        // Eager-load category, inventario and only primary image to reduce payload and avoid N+1
+        $query = Producto::with([
+            'categoria:id,nombre',
+            'inventario:producto_id,stock_actual,stock_minimo,costo_promedio',
+            'imagenes' => function($q) { $q->select('id','producto_id','url_imagen','es_imagen_principal')->orderBy('order'); }
+        ])->select(['id','nombre','descripcion_corta','precio_minorista','precio_mayorista','categorias_id','url','esta_activo','created_at']);
 
         // Filtros opcionales
         if ($request->has('categoria_id')) {
@@ -37,7 +44,19 @@ class AdminProductoController extends Controller
             });
         }
 
-        $productos = $query->orderBy('created_at', 'desc')->paginate(20);
+        $perPage = (int) $request->get('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+
+        // If first page and no filters, cache the result briefly
+        $shouldCache = $request->get('page', 1) == 1 && !$request->has('search') && !$request->has('categoria_id') && !$request->has('activo');
+        if ($shouldCache) {
+            $cacheKey = "productos.index.page.1.per.{$perPage}";
+            $productos = Cache::remember($cacheKey, 30, function() use ($query, $perPage) {
+                return $query->orderBy('created_at', 'desc')->paginate($perPage);
+            });
+        } else {
+            $productos = $query->orderBy('created_at', 'desc')->paginate($perPage);
+        }
 
         return response()->json($productos);
     }
@@ -55,7 +74,8 @@ class AdminProductoController extends Controller
             'precio_minorista' => 'required|numeric|min:0',
             'precio_mayorista' => 'nullable|numeric|min:0',
             'cantidad_minima_mayoreo' => 'nullable|integer|min:1',
-            'unidad_medida' => 'nullable|in:unidad,docena,kilo,gramo,litro,mililitro,paquete,arroba',
+            // Values must match the DB enum exactly to avoid SQL truncation warnings
+            'unidad_medida' => 'nullable|in:unidad,cm,docena,paquete,gramos,kilogramos,arroba,porcion',
             'cantidad' => 'nullable|numeric|min:0',
             'presentacion' => 'nullable|string',
             'es_de_temporada' => 'boolean',
@@ -87,26 +107,84 @@ class AdminProductoController extends Controller
 
             $validated['url'] = $url;
 
+            // Ensure database-required numeric fields have defaults if not provided
+            if (!isset($validated['limite_produccion'])) {
+                $validated['limite_produccion'] = 0;
+            }
+            if (!isset($validated['cantidad'])) {
+                $validated['cantidad'] = 0;
+            }
+
+            // Normalize boolean checkboxes: if not present in request, set sensible defaults
+            $validated['es_de_temporada'] = $validated['es_de_temporada'] ?? false;
+            $validated['esta_activo'] = $validated['esta_activo'] ?? true;
+            // DB default for permite_delivery is true
+            $validated['permite_delivery'] = $validated['permite_delivery'] ?? true;
+            $validated['permite_envio_nacional'] = $validated['permite_envio_nacional'] ?? false;
+            $validated['requiere_tiempo_anticipacion'] = $validated['requiere_tiempo_anticipacion'] ?? false;
+            $validated['tiene_extras'] = $validated['tiene_extras'] ?? false;
+
+            // Normalize extras: if tiene_extras is false, store null; if true but array is missing, store empty array
+            if (!$validated['tiene_extras']) {
+                $validated['extras_disponibles'] = null;
+            } else {
+                $validated['extras_disponibles'] = isset($validated['extras_disponibles']) ? array_values($validated['extras_disponibles']) : [];
+            }
+
             // Crear producto
-            $producto = Producto::create($validated);
+            // Create product without attempting to set productos.cantidad (we use inventory table as source of truth)
+            $productoData = $validated;
+            // Remove cantidad if present to avoid writing to productos.cantidad
+            if (array_key_exists('cantidad', $productoData)) {
+                unset($productoData['cantidad']);
+            }
+            $producto = Producto::create($productoData);
 
             // Agregar imágenes si existen
             if (isset($validated['imagenes']) && is_array($validated['imagenes'])) {
                 foreach ($validated['imagenes'] as $index => $imagenUrl) {
-                    ImagenProducto::create([
-                        'producto_id' => $producto->id,
-                        'url_imagen' => $imagenUrl,
-                        'es_imagen_principal' => $index === 0,
-                        'order' => $index + 1,
-                    ]);
+                    // Security: accept only http(s) URLs or data URIs. Skip otherwise.
+                    if (is_string($imagenUrl) && (preg_match('#^https?://#i', $imagenUrl) || preg_match('#^data:image/#i', $imagenUrl))) {
+                        ImagenProducto::create([
+                            'producto_id' => $producto->id,
+                            'url_imagen' => $imagenUrl,
+                            'es_imagen_principal' => $index === 0,
+                            'order' => $index + 1,
+                        ]);
+                    } else {
+                        Log::warning('Imagen no válida omitida al crear producto ' . $producto->id . ': ' . json_encode($imagenUrl));
+                    }
                 }
             }
 
             DB::commit();
 
+            // Sincronizar inventario: si se proporcionó 'cantidad' la guardamos en inventario
+            try {
+                if (isset($validated['cantidad'])) {
+                    InventarioProductoFinal::updateOrCreate(
+                        ['producto_id' => $producto->id],
+                        [
+                            'stock_actual' => $validated['cantidad'],
+                            'stock_minimo' => 0,
+                            'costo_promedio' => $producto->precio_minorista ?? 0,
+                        ]
+                    );
+                }
+            } catch (\Throwable $e) {
+                // No bloquear la creación del producto si falla la sincronización de inventario
+                Log::warning('No se pudo sincronizar inventario para producto ' . $producto->id . ': ' . $e->getMessage());
+            }
+
+            // Invalidate caches that may be affected
+            Cache::forget('productos.stats');
+            foreach ([20,50,100] as $pp) {
+                Cache::forget("productos.index.page.1.per.{$pp}");
+            }
+
             return response()->json([
                 'message' => 'Producto creado exitosamente',
-                'producto' => $producto->load(['categoria', 'imagenes'])
+                'producto' => $producto->load(['categoria', 'imagenes', 'inventario'])
             ], 201);
 
         } catch (\Exception $e) {
@@ -123,7 +201,7 @@ class AdminProductoController extends Controller
      */
     public function show($id)
     {
-        $producto = Producto::with(['categoria', 'imagenes'])->findOrFail($id);
+        $producto = Producto::with(['categoria', 'imagenes', 'inventario'])->findOrFail($id);
         return response()->json($producto);
     }
 
@@ -148,7 +226,7 @@ class AdminProductoController extends Controller
             'precio_minorista' => 'nullable|numeric|min:0',
             'precio_mayorista' => 'nullable|numeric|min:0',
             'cantidad_minima_mayoreo' => 'nullable|integer|min:1',
-            'unidad_medida' => 'nullable|in:unidad,docena,kilo,gramo,litro,mililitro,paquete,arroba',
+            'unidad_medida' => 'nullable|in:unidad,cm,docena,paquete,gramos,kilogramos,arroba,porcion',
             'cantidad' => 'nullable|numeric|min:0',
             'presentacion' => 'nullable|string',
             'es_de_temporada' => 'nullable|boolean',
@@ -196,6 +274,36 @@ class AdminProductoController extends Controller
                 $dataToUpdate['url'] = $url;
             }
 
+            // Avoid writing to productos.cantidad (inventory is source of truth)
+            if (array_key_exists('cantidad', $dataToUpdate)) {
+                unset($dataToUpdate['cantidad']);
+            }
+
+            // Ensure boolean defaults when checkboxes are omitted from the payload
+            $defaults = [
+                'es_de_temporada' => false,
+                'esta_activo' => true,
+                'permite_delivery' => false,
+                'permite_envio_nacional' => false,
+                'requiere_tiempo_anticipacion' => false,
+                'tiene_extras' => false,
+            ];
+            foreach ($defaults as $k => $v) {
+                if (!array_key_exists($k, $dataToUpdate)) {
+                    // if key was not provided, we don't want to overwrite existing value; only set if explicitly present in validated
+                    if (array_key_exists($k, $validated)) {
+                        $dataToUpdate[$k] = $validated[$k];
+                    }
+                }
+            }
+
+            // Normalize extras for update: if tiene_extras is false, set extras_disponibles to null
+            if (array_key_exists('tiene_extras', $dataToUpdate) && $dataToUpdate['tiene_extras'] === false) {
+                $dataToUpdate['extras_disponibles'] = null;
+            } elseif (array_key_exists('tiene_extras', $dataToUpdate) && $dataToUpdate['tiene_extras'] === true) {
+                $dataToUpdate['extras_disponibles'] = array_key_exists('extras_disponibles', $validated) ? array_values($validated['extras_disponibles']) : [];
+            }
+
             // Actualizar solo los campos proporcionados
             if (!empty($dataToUpdate)) {
                 $producto->update($dataToUpdate);
@@ -217,11 +325,32 @@ class AdminProductoController extends Controller
                 }
             }
 
+            // If a cantidad was provided we need to sync inventory before committing return
             DB::commit();
+
+            // Invalidate caches
+            Cache::forget('productos.stats');
+            foreach ([20,50,100] as $pp) {
+                Cache::forget("productos.index.page.1.per.{$pp}");
+            }
+
+            // Sincronizar inventario si se envió 'cantidad' (hacerlo después del commit para no interferir con la transacción)
+            try {
+                if (array_key_exists('cantidad', $validated)) {
+                    InventarioProductoFinal::updateOrCreate(
+                        ['producto_id' => $producto->id],
+                        [
+                            'stock_actual' => $validated['cantidad'] ?? 0,
+                        ]
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning('No se pudo sincronizar inventario (update) para producto ' . $producto->id . ': ' . $e->getMessage());
+            }
 
             return response()->json([
                 'message' => 'Producto actualizado exitosamente',
-                'producto' => $producto->fresh(['categoria', 'imagenes'])
+                'producto' => $producto->fresh(['categoria', 'imagenes', 'inventario'])
             ]);
 
         } catch (\Exception $e) {
@@ -248,6 +377,12 @@ class AdminProductoController extends Controller
         $producto = Producto::findOrFail($id);
         $producto->delete();
 
+        // Invalidate caches
+        Cache::forget('productos.stats');
+        foreach ([20,50,100] as $pp) {
+            Cache::forget("productos.index.page.1.per.{$pp}");
+        }
+
         return response()->json([
             'message' => 'Producto eliminado exitosamente'
         ]);
@@ -260,6 +395,12 @@ class AdminProductoController extends Controller
     {
         $producto = Producto::withTrashed()->findOrFail($id);
         $producto->restore();
+
+        // Invalidate caches
+        Cache::forget('productos.stats');
+        foreach ([20,50,100] as $pp) {
+            Cache::forget("productos.index.page.1.per.{$pp}");
+        }
 
         return response()->json([
             'message' => 'Producto restaurado exitosamente',
@@ -275,6 +416,12 @@ class AdminProductoController extends Controller
         $producto = Producto::findOrFail($id);
         $producto->esta_activo = !$producto->esta_activo;
         $producto->save();
+
+        // Invalidate caches
+        Cache::forget('productos.stats');
+        foreach ([20,50,100] as $pp) {
+            Cache::forget("productos.index.page.1.per.{$pp}");
+        }
 
         return response()->json([
             'message' => 'Estado actualizado exitosamente',
@@ -351,22 +498,36 @@ class AdminProductoController extends Controller
      */
     public function stats()
     {
-        $stats = [
-            'total_productos' => Producto::count(),
-            'productos_activos' => Producto::where('esta_activo', true)->count(),
-            'productos_temporada' => Producto::where('es_de_temporada', true)->count(),
-            'productos_sin_imagen' => Producto::doesntHave('imagenes')->count(),
-            'por_categoria' => Producto::select('categorias_id', DB::raw('count(*) as total'))
+        // Cache this because stats are expensive and change slowly; short TTL
+        return Cache::remember('productos.stats', 60, function() {
+            // Use efficient aggregated queries
+            $total = Producto::count();
+            $activos = Producto::where('esta_activo', true)->count();
+            $temporada = Producto::where('es_de_temporada', true)->count();
+            $sinImagen = Producto::doesntHave('imagenes')->count();
+            $porCategoria = Producto::select('categorias_id', DB::raw('count(*) as total'))
                 ->groupBy('categorias_id')
-                ->with('categoria:id,nombre')
-                ->get()
-                ->map(function($item) {
-                    return [
-                        'categoria' => $item->categoria->nombre ?? 'Sin categoría',
-                        'total' => $item->total
-                    ];
-                }),
-        ];
+                ->get();
+
+            // Resolve category names in a separate query to avoid loading full producto models
+            $categoriaIds = $porCategoria->pluck('categorias_id')->filter()->unique()->values();
+            $categorias = DB::table('categorias')->whereIn('id', $categoriaIds)->pluck('nombre','id');
+
+            $por_categoria = $porCategoria->map(function($item) use ($categorias) {
+                return [
+                    'categoria' => $categorias[$item->categorias_id] ?? 'Sin categoría',
+                    'total' => $item->total,
+                ];
+            })->values();
+
+            return [
+                'total_productos' => $total,
+                'productos_activos' => $activos,
+                'productos_temporada' => $temporada,
+                'productos_sin_imagen' => $sinImagen,
+                'por_categoria' => $por_categoria,
+            ];
+        });
 
         return response()->json($stats);
     }

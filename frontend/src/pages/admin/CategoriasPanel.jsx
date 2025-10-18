@@ -155,32 +155,38 @@ export default function CategoriasPanel() {
                     {cat.esta_activo ? 'Activa' : 'Inactiva'}
                   </Badge>
                 </td>
-                <td>
-                  <Button
-                    variant="outline-primary"
-                    size="sm"
-                    className="me-2"
-                    onClick={() => handleEditar(cat)}
-                  >
-                    <i className="bi bi-pencil"></i>
-                  </Button>
-                  <Button
-                    variant={cat.esta_activo ? 'outline-warning' : 'outline-success'}
-                    size="sm"
-                    className="me-2"
-                    onClick={() => handleToggleActive(cat.id)}
-                  >
-                    <i className={`bi bi-${cat.esta_activo ? 'x-circle' : 'check-circle'}`}></i>
-                  </Button>
-                  <Button
-                    variant="outline-danger"
-                    size="sm"
-                    onClick={() => handleEliminar(cat.id, cat.nombre)}
-                    disabled={cat.productos_count > 0}
-                  >
-                    <i className="bi bi-trash"></i>
-                  </Button>
-                </td>
+                                  <td>
+                    <Button
+                      variant="outline-primary"
+                      size="sm"
+                      className="me-2"
+                      onClick={() => handleEditar(cat)}
+                      title="Editar"
+                    >
+                      <i className="bi bi-pencil me-1"></i>
+                      Editar
+                    </Button>
+                    <Button
+                      variant={cat.esta_activo ? 'outline-warning' : 'outline-success'}
+                      size="sm"
+                      className="me-2"
+                      onClick={() => handleToggleActive(cat.id)}
+                      title={cat.esta_activo ? 'Desactivar' : 'Activar'}
+                    >
+                      <i className={`bi bi-${cat.esta_activo ? 'x-circle' : 'check-circle'} me-1`}></i>
+                      {cat.esta_activo ? 'Desactivar' : 'Activar'}
+                    </Button>
+                    <Button
+                      variant="outline-danger"
+                      size="sm"
+                      onClick={() => handleEliminar(cat.id, cat.nombre)}
+                      disabled={cat.productos_count > 0}
+                      title="Eliminar"
+                    >
+                      <i className="bi bi-trash me-1"></i>
+                      Eliminar
+                    </Button>
+                  </td>
               </tr>
             ))}
           </tbody>

@@ -15,11 +15,7 @@ class Panadero extends Model
     protected $fillable = [
         'user_id',
         'codigo_panadero',
-        'nombre',
-        'apellido',
-        'email',
-        'telefono',
-        'ci',
+        // contact fields are stored in users table for normalization
         'direccion',
         'fecha_ingreso',
         'turno',
@@ -66,8 +62,8 @@ class Panadero extends Model
         if ($this->user) {
             return $this->user->name;
         }
-        // Si no, usar nombre y apellido directos (legacy)
-        return "{$this->nombre} {$this->apellido}";
+        // Si no hay user vinculado, intentar fallback legacy
+        return trim((($this->nombre ?? '') . ' ' . ($this->apellido ?? '')));
     }
     
     // Generar código único de panadero

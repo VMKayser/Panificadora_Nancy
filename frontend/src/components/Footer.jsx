@@ -11,7 +11,7 @@ const Footer = () => {
     facebook: 'https://www.facebook.com/profile.php?id=61557646906876',
     instagram: 'https://www.instagram.com/panificadora_nancy01',
     whatsapp: 'https://wa.me/59176490687', // Código Bolivia (+591)
-    googleMaps: 'https://maps.app.goo.gl/vpcVxdugSOBICI32Y'
+  googleMaps: 'https://www.google.com/maps/search/?api=1&query=-17.403381642688004,-66.2815992191286'
   };
 
   // Animaciones

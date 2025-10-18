@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import PropTypes from 'prop-types';
 import { useCart } from '../context/CartContext';
 import ProductModal from './ProductModal';
@@ -16,6 +16,11 @@ function Carousel({ productos = [], speed = 40 }) {
 
   const handleAddToCart = (e, producto) => {
     e.stopPropagation(); // Evitar que se abra el modal
+    const available = producto?.inventario?.stock_actual ?? producto?.stock_actual ?? producto?.stock ?? null;
+    if (available !== null && Number(available) <= 0) {
+      // Mostrar mensaje y no intentar agregar
+      return;
+    }
     addToCart(producto);
   };
 
@@ -59,7 +64,7 @@ function Carousel({ productos = [], speed = 40 }) {
               />
               <div className={styles.cardBody}>
                 <h5 className={styles.title}>{producto.nombre}</h5>
-                {producto.presentacion && (
+                {String(producto.presentacion ?? '').trim() !== '' && (
                   <p className={styles.presentation}>
                     <Package size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
                     {producto.presentacion}
@@ -68,15 +73,21 @@ function Carousel({ productos = [], speed = 40 }) {
               <p className={styles.text}>{descripcionMostrar}</p>
               <div className={styles.price}>
                 <div className={styles.priceH5}>
-                  Bs. {producto.precio_minorista ? parseFloat(producto.precio_minorista).toFixed(2) : (producto.precio ? parseFloat(producto.precio).toFixed(2) : 'NaN')}
+                  Bs. {(parseFloat(String(producto.precio_minorista ?? producto.precio ?? 0)) || 0).toFixed(2)}
                 </div>
-                <button 
-                  className={styles.addBtn}
-                  onClick={(e) => handleAddToCart(e, producto)}
-                  title="Agregar al carrito"
-                >
-                  <Plus size={20} />
-                </button>
+                { (producto?.inventario?.stock_actual ?? producto?.stock_actual ?? producto?.stock ?? null) <= 0 ? (
+                  <button className={styles.addBtn} disabled title="Sin stock">
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>Sin stock</span>
+                  </button>
+                ) : (
+                  <button 
+                    className={styles.addBtn}
+                    onClick={(e) => handleAddToCart(e, producto)}
+                    title="Agregar al carrito"
+                  >
+                    <Plus size={20} />
+                  </button>
+                )}
               </div>
               {producto.requiere_tiempo_anticipacion && (
                 <div className={styles.badge}>
@@ -123,4 +134,4 @@ Carousel.propTypes = {
   speed: PropTypes.number
 };
 
-export default Carousel;
+export default memo(Carousel);

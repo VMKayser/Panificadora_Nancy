@@ -19,6 +19,7 @@ class AdminUserSeeder extends Seeder
             ['email' => 'admin@panificadoranancy.com'],
             [
                 'name' => 'Administrador',
+                'role' => 'admin',
                 'password' => Hash::make('admin123'), // Cambiar en producción
                 'phone' => '77777777',
                 'is_active' => true,

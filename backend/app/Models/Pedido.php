@@ -13,6 +13,7 @@ class Pedido extends Model
     
     protected $fillable = [
         'numero_pedido',
+        'vendedor_id',
         'user_id',
         'cliente_id',
         'cliente_nombre',
@@ -36,6 +37,7 @@ class Pedido extends Model
         'fecha_entrega',
         'hora_entrega',
         'fecha_pago',
+        'stock_descargado',
     ];
 
     protected $casts = [
@@ -65,6 +67,11 @@ class Pedido extends Model
     public function detalles()
     {
         return $this->hasMany(DetallePedido::class, 'pedidos_id');
+    }
+
+    public function vendedor()
+    {
+        return $this->belongsTo(Vendedor::class, 'vendedor_id');
     }
 
     protected static function booted()

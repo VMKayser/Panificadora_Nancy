@@ -11,6 +11,7 @@ class Cliente extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'user_id',
         'nombre',
         'apellido',
         'email',
@@ -34,6 +35,13 @@ class Cliente extends Model
     // Relación con usuario
     public function user()
     {
+        // Prefer relation by user_id if present (new normalized schema).
+        // Keep compatibility: if user_id is null, allow lookup by email.
+        if ($this->user_id) {
+            return $this->belongsTo(User::class);
+        }
+
+        // Fallback to email-based relation for legacy rows.
         return $this->belongsTo(User::class, 'email', 'email');
     }
 

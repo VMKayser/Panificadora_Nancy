@@ -137,7 +137,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
         tabIndex="-1"
         style={{ zIndex: 1050 }}
       >
-        <div className="modal-dialog modal-xl modal-dialog-scrollable">
+        <div className="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-sm-down">
           <div className="modal-content">
             <div className="modal-header" style={{ backgroundColor: '#f8f4f0', borderBottom: '2px solid #8b6f47' }}>
               <h5 className="modal-title">
@@ -161,22 +161,41 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                       <h6 className="mb-0"><i className="bi bi-person me-2"></i>Datos del Cliente</h6>
                     </div>
                     <div className="card-body">
-                      <table className="table table-sm table-borderless mb-0">
-                        <tbody>
-                          <tr>
-                            <td className="text-muted" style={{ width: '40%' }}>Nombre:</td>
-                            <td><strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong></td>
-                          </tr>
-                          <tr>
-                            <td className="text-muted">Email:</td>
-                            <td>{pedido.cliente_email}</td>
-                          </tr>
-                          <tr>
-                            <td className="text-muted">Teléfono:</td>
-                            <td>{pedido.cliente_telefono}</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                      {/* Desktop: table */}
+                      <div className="d-none d-md-block">
+                        <table className="table table-sm table-borderless mb-0">
+                          <tbody>
+                            <tr>
+                              <td className="text-muted" style={{ width: '40%' }}>Nombre:</td>
+                              <td><strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong></td>
+                            </tr>
+                            <tr>
+                              <td className="text-muted">Email:</td>
+                              <td>{pedido.cliente_email}</td>
+                            </tr>
+                            <tr>
+                              <td className="text-muted">Teléfono:</td>
+                              <td>{pedido.cliente_telefono}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile: stacked list */}
+                      <div className="d-block d-md-none">
+                        <div className="mb-2">
+                          <div className="text-muted">Nombre</div>
+                          <div><strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong></div>
+                        </div>
+                        <div className="mb-2">
+                          <div className="text-muted">Email</div>
+                          <div>{pedido.cliente_email}</div>
+                        </div>
+                        <div className="mb-0">
+                          <div className="text-muted">Teléfono</div>
+                          <div>{pedido.cliente_telefono}</div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -188,43 +207,77 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                       <h6 className="mb-0"><i className="bi bi-info-circle me-2"></i>Datos del Pedido</h6>
                     </div>
                     <div className="card-body">
-                      <table className="table table-sm table-borderless mb-0">
-                        <tbody>
-                          <tr>
-                            <td className="text-muted" style={{ width: '40%' }}>Fecha:</td>
-                            <td>{formatFecha(pedido.created_at)}</td>
-                          </tr>
-                          <tr>
-                            <td className="text-muted">Estado:</td>
-                            <td>
-                              <span className={`badge ${
-                                pedido.estado === 'pendiente' ? 'bg-warning text-dark' :
-                                pedido.estado === 'confirmado' ? 'bg-info' :
-                                pedido.estado === 'en_preparacion' ? 'bg-primary' :
-                                pedido.estado === 'listo' ? 'bg-success' :
-                                pedido.estado === 'entregado' ? 'bg-secondary' :
-                                'bg-danger'
-                              }`}>
-                                {pedido.estado.replace('_', ' ').toUpperCase()}
-                              </span>
-                            </td>
-                          </tr>
-                          <tr>
-                            <td className="text-muted">Tipo:</td>
-                            <td>
-                              <span className={`badge ${pedido.tipo_entrega === 'delivery' ? 'bg-info' : 'bg-secondary'}`}>
-                                {pedido.tipo_entrega === 'delivery' ? 'Delivery' : 'Retiro en local'}
-                              </span>
-                            </td>
-                          </tr>
-                          {pedido.tipo_entrega === 'delivery' && (
+                      {/* Desktop */}
+                      <div className="d-none d-md-block">
+                        <table className="table table-sm table-borderless mb-0">
+                          <tbody>
                             <tr>
-                              <td className="text-muted">Dirección:</td>
-                              <td>{pedido.direccion_entrega}</td>
+                              <td className="text-muted" style={{ width: '40%' }}>Fecha:</td>
+                              <td>{formatFecha(pedido.created_at)}</td>
                             </tr>
-                          )}
-                        </tbody>
-                      </table>
+                            <tr>
+                              <td className="text-muted">Estado:</td>
+                              <td>
+                                <span className={`badge ${
+                                  pedido.estado === 'pendiente' ? 'bg-warning text-dark' :
+                                  pedido.estado === 'confirmado' ? 'bg-info' :
+                                  pedido.estado === 'en_preparacion' ? 'bg-primary' :
+                                  pedido.estado === 'listo' ? 'bg-success' :
+                                  pedido.estado === 'entregado' ? 'bg-secondary' :
+                                  'bg-danger'
+                                }`}>
+                                  {String(pedido.estado || '').replace('_', ' ').toUpperCase()}
+                                </span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="text-muted">Tipo:</td>
+                              <td>
+                                <span className={`badge ${pedido.tipo_entrega === 'delivery' ? 'bg-info' : 'bg-secondary'}`}>
+                                  {pedido.tipo_entrega === 'delivery' ? 'Delivery' : 'Retiro en local'}
+                                </span>
+                              </td>
+                            </tr>
+                            {pedido.tipo_entrega === 'delivery' && (
+                              <tr>
+                                <td className="text-muted">Dirección:</td>
+                                <td>{pedido.direccion_entrega}</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile stacked */}
+                      <div className="d-block d-md-none">
+                        <div className="mb-2">
+                          <div className="text-muted">Fecha</div>
+                          <div>{formatFecha(pedido.created_at)}</div>
+                        </div>
+                        <div className="mb-2">
+                          <div className="text-muted">Estado</div>
+                          <div>
+                            <span className={`badge ${
+                              pedido.estado === 'pendiente' ? 'bg-warning text-dark' :
+                              pedido.estado === 'confirmado' ? 'bg-info' :
+                              pedido.estado === 'en_preparacion' ? 'bg-primary' :
+                              pedido.estado === 'listo' ? 'bg-success' :
+                              pedido.estado === 'entregado' ? 'bg-secondary' :
+                              'bg-danger'
+                            }`}>{String(pedido.estado || '').replace('_', ' ').toUpperCase()}</span>
+                          </div>
+                        </div>
+                        <div className="mb-2">
+                          <div className="text-muted">Tipo</div>
+                          <div><span className={`badge ${pedido.tipo_entrega === 'delivery' ? 'bg-info' : 'bg-secondary'}`}>{pedido.tipo_entrega === 'delivery' ? 'Delivery' : 'Retiro en local'}</span></div>
+                        </div>
+                        {pedido.tipo_entrega === 'delivery' && (
+                          <div className="mb-0">
+                            <div className="text-muted">Dirección</div>
+                            <div>{pedido.direccion_entrega}</div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -329,7 +382,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                     <div className="card-body">
                       <div className="row g-3">
                         {/* Cambiar estado */}
-                        <div className="col-md-6">
+                        <div className="col-12 col-md-6">
                           <label className="form-label fw-bold">Cambiar Estado</label>
                           <select
                             className="form-select mb-2"
@@ -353,7 +406,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                         </div>
 
                         {/* Fecha y hora de entrega */}
-                        <div className="col-md-6">
+                        <div className="col-12 col-md-6">
                           <label className="form-label fw-bold">Fecha y Hora de Entrega</label>
                           <div className="row g-2">
                             <div className="col-7">
@@ -385,7 +438,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                         </div>
 
                         {/* Agregar notas */}
-                        <div className="col-md-6">
+                        <div className="col-12 col-md-6">
                           <label className="form-label fw-bold">Agregar Notas</label>
                           <textarea
                             className="form-control form-control-sm mb-2"
@@ -405,7 +458,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                         </div>
 
                         {/* Cancelar pedido */}
-                        <div className="col-md-6">
+                        <div className="col-12 col-md-6">
                           <label className="form-label fw-bold">Cancelar Pedido</label>
                           <textarea
                             className="form-control form-control-sm mb-2"

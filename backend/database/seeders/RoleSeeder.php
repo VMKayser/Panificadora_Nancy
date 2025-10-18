@@ -18,6 +18,10 @@ class RoleSeeder extends Seeder
                 'description' => 'Administrador total del sistema'
             ],
             [
+                'name' => 'panadero',
+                'description' => 'Empleado de producción - maneja la elaboración de productos'
+            ],
+            [
                 'name' => 'vendedor',
                 'description' => 'Personal de tienda - puede ver y gestionar pedidos'
             ],

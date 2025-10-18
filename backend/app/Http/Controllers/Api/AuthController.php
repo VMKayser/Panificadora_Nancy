@@ -74,18 +74,10 @@ class AuthController extends Controller
                 ]);
             }
 
-            // Enviar email de bienvenida
-            try {
-                Mail::to($user->email)->send(new BienvenidaUsuario($user));
-            } catch (\Exception $e) {
-                // No detener el registro si falla el envío en desarrollo
-                Log::error('Error enviando correo de bienvenida: ' . $e->getMessage());
-            }
-
             DB::commit();
 
             return response()->json([
-                'message' => 'Usuario registrado exitosamente. Revisa tu correo para verificar la cuenta.',
+                'message' => 'Usuario registrado exitosamente.',
                 'user' => $user->load('roles'),
             ], 201);
 

@@ -27,6 +27,9 @@ export default function VendedoresPanel() {
     turno: '',
     estado: 'activo'
   });
+  const [showPagoModal, setShowPagoModal] = useState(false);
+  const [pagarVendedor, setPagarVendedor] = useState(null);
+  const [pagoForm, setPagoForm] = useState({ monto: '', comision_pagada: '', tipo_pago: 'comision', notas: '' });
 
   useEffect(() => {
     cargarDatos();
@@ -148,6 +151,52 @@ export default function VendedoresPanel() {
     setShowModal(true);
   };
 
+  const openPagoModal = (vendedor, tipo = 'comision') => {
+    setPagarVendedor(vendedor);
+    setPagoForm({
+      monto: tipo === 'comision' ? (vendedor.comision_acumulada || 0) : (vendedor.salario_base || 0),
+      comision_pagada: tipo === 'comision' ? (vendedor.comision_acumulada || 0) : '',
+      tipo_pago: tipo,
+      notas: ''
+    });
+    setShowPagoModal(true);
+  };
+
+  const handleClosePagoModal = () => { setShowPagoModal(false); setPagarVendedor(null); };
+
+  const handlePagoFormChange = (field, value) => setPagoForm(prev => ({ ...prev, [field]: value }));
+
+  const handleSubmitPago = async (e) => {
+    e.preventDefault();
+    if (!pagarVendedor) return;
+    try {
+      // Client-side validation: do not allow to pay more than commission accumulated
+      if (pagoForm.tipo_pago === 'comision') {
+        const disponible = parseFloat(pagarVendedor.comision_acumulada || 0);
+        const comisionPagada = pagoForm.comision_pagada ? parseFloat(pagoForm.comision_pagada) : (pagoForm.monto ? parseFloat(pagoForm.monto) : 0);
+        if (comisionPagada > disponible) {
+          return toast.error('No se puede pagar más que la comisión acumulada');
+        }
+      }
+      const payload = {
+        empleado_tipo: 'vendedor',
+        empleado_id: pagarVendedor.id,
+        monto: parseFloat(pagoForm.monto) || 0,
+        comision_pagada: pagoForm.tipo_pago === 'comision' ? (pagoForm.comision_pagada ? parseFloat(pagoForm.comision_pagada) : null) : null,
+        tipo_pago: pagoForm.tipo_pago === 'sueldo' ? 'sueldo_fijo' : 'comision',
+        es_sueldo_fijo: pagoForm.tipo_pago === 'sueldo' ? true : false,
+    notas: pagoForm.notas || '',
+      };
+      await admin.crearEmpleadoPago(payload);
+      handleClosePagoModal();
+      cargarDatos();
+      toast.success('Pago registrado');
+    } catch (err) {
+      console.error('Error registrando pago:', err);
+      toast.error(err.response?.data?.message || 'Error registrando pago');
+    }
+  };
+
   if (loading) {
     return (
       <div className="text-center py-4">
@@ -247,7 +296,7 @@ export default function VendedoresPanel() {
       {/* Título */}
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h4>👥 Gestión de Vendedores</h4>
-        <Button size="sm" onClick={handleNuevo} style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}>+ Nuevo Vendedor</Button>
+        {/* Botón removido: Los vendedores se crean desde el Panel de Clientes cambiando el rol */}
       </div>
 
       {/* Tabla */}
@@ -262,6 +311,7 @@ export default function VendedoresPanel() {
               <th>Email</th>
               <th>Total Vendido</th>
               <th>Comisión %</th>
+              <th>Comisión acumulada</th>
               <th>Fecha Registro</th>
               <th>Estado</th>
               <th>Acciones</th>
@@ -275,6 +325,7 @@ export default function VendedoresPanel() {
                 <td>{vendedor.user?.email || vendedor.email || 'N/A'}</td>
                 <td>Bs. {parseFloat(vendedor.total_vendido || 0).toFixed(2)}</td>
                 <td>{parseFloat(vendedor.comision_porcentaje || 0).toFixed(2)}%</td>
+                <td>Bs. {parseFloat(vendedor.comision_acumulada || 0).toFixed(2)}</td>
                 <td>{new Date(vendedor.created_at).toLocaleDateString()}</td>
                 <td>
                   <Badge bg={vendedor.estado === 'activo' ? 'success' : vendedor.estado === 'inactivo' ? 'secondary' : 'warning'}>
@@ -282,24 +333,33 @@ export default function VendedoresPanel() {
                   </Badge>
                 </td>
                 <td>
-                  <Button size="sm" variant="outline-primary" onClick={() => handleEditar(vendedor)} className="me-2">
-                    Editar
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={vendedor.estado === 'activo' ? 'outline-warning' : 'outline-success'}
-                    onClick={() => handleCambiarEstado(vendedor.id, vendedor.user?.name || vendedor.name)}
-                    className="me-2"
-                  >
-                    {vendedor.estado === 'activo' ? 'Desactivar' : 'Activar'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline-danger"
-                    onClick={() => handleEliminar(vendedor.id, vendedor.user?.name || vendedor.name)}
-                  >
-                    Eliminar
-                  </Button>
+                  <div className="d-flex gap-2">
+                    <Button size="sm" variant="outline-primary" onClick={() => handleEditar(vendedor)}>
+                      Editar
+                    </Button>
+                    <Button size="sm" variant="outline-success" onClick={() => openPagoModal(vendedor, 'comision')}>
+                      Pagar
+                    </Button>
+                    {typeof onOpenPayments === 'function' && (
+                      <Button size="sm" variant="outline-secondary" onClick={() => onOpenPayments('vendedor', vendedor.id, vendedor.comision_acumulada || 0)}>
+                        Ver Pagos
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant={vendedor.estado === 'activo' ? 'outline-warning' : 'outline-success'}
+                      onClick={() => handleCambiarEstado(vendedor.id, vendedor.user?.name || vendedor.name)}
+                    >
+                      {vendedor.estado === 'activo' ? 'Desactivar' : 'Activar'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline-danger"
+                      onClick={() => handleEliminar(vendedor.id, vendedor.user?.name || vendedor.name)}
+                    >
+                      Eliminar
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -366,6 +426,46 @@ export default function VendedoresPanel() {
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowModal(false)}>Cancelar</Button>
             <Button variant="primary" type="submit" style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}>{editing ? 'Actualizar' : 'Crear'}</Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      {/* Modal Pago Vendedor */}
+      <Modal show={showPagoModal} onHide={handleClosePagoModal}>
+        <Form onSubmit={handleSubmitPago}>
+          <Modal.Header closeButton>
+            <Modal.Title>Registrar Pago - {pagarVendedor?.user?.name || pagarVendedor?.name}</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <Form.Group className="mb-2">
+              <Form.Label>Tipo de pago</Form.Label>
+              <Form.Select value={pagoForm.tipo_pago} onChange={e => handlePagoFormChange('tipo_pago', e.target.value)}>
+                <option value="comision">Comisión (parcial o total)</option>
+                <option value="sueldo">Sueldo fijo</option>
+              </Form.Select>
+            </Form.Group>
+
+            <Form.Group className="mb-2">
+              <Form.Label>Monto (Bs)</Form.Label>
+              <Form.Control type="number" step="0.01" value={pagoForm.monto} onChange={e => handlePagoFormChange('monto', e.target.value)} required />
+            </Form.Group>
+
+            {pagoForm.tipo_pago === 'comision' && (
+              <Form.Group className="mb-2">
+                <Form.Label>Comisión pagada (Bs)</Form.Label>
+                <Form.Control type="number" step="0.01" value={pagoForm.comision_pagada} onChange={e => handlePagoFormChange('comision_pagada', e.target.value)} />
+                <Form.Text className="text-muted">Si deja vacío, se descontará el monto ingresado de la comisión acumulada.</Form.Text>
+              </Form.Group>
+            )}
+
+            <Form.Group className="mb-2">
+              <Form.Label>Notas</Form.Label>
+              <Form.Control as="textarea" rows={3} value={pagoForm.notas} onChange={e => handlePagoFormChange('notas', e.target.value)} />
+            </Form.Group>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="secondary" onClick={handleClosePagoModal}>Cancelar</Button>
+            <Button variant="success" type="submit">Registrar Pago</Button>
           </Modal.Footer>
         </Form>
       </Modal>

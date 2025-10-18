@@ -151,10 +151,10 @@ export default function MovimientosInventarioPanel() {
           </tr>
         </thead>
         <tbody>
-          {items.map(item => {
-            const nombre = activeTab === 'materias-primas' 
-              ? item.nombre 
-              : item.producto?.nombre || 'N/A';
+          {items.map((item, index) => {
+            const nombre = activeTab === 'materias-primas'
+              ? item.nombre
+              : (item.producto?.nombre || item.producto || 'N/A');
             const stockActual = parseFloat(item.stock_actual || 0);
             const stockMinimo = parseFloat(item.stock_minimo || 0);
             const unidad = activeTab === 'materias-primas' 
@@ -172,13 +172,20 @@ export default function MovimientosInventarioPanel() {
               estadoTexto = 'Stock Bajo';
             }
             
+            const rowKey = item.id ?? item.producto_id ?? item.producto?.id ?? `${activeTab}-${index}`;
+
+            // Decide how to display stock: materias primas -> max 2 decimals; productos finales -> show full value
+            const stockDisplay = activeTab === 'materias-primas'
+              ? stockActual.toFixed(2)
+              : (Number.isInteger(stockActual) ? stockActual.toString() : stockActual.toString());
+
             return (
-              <tr key={item.id}>
-                <td>{item.id}</td>
+              <tr key={rowKey}>
+                <td>{activeTab === 'materias-primas' ? item.id : (item.producto_id ?? '—')}</td>
                 <td><strong>{nombre}</strong></td>
                 <td>
                   <Badge bg={estadoBadge}>
-                    {stockActual.toFixed(3)} {unidad}
+                    {stockDisplay} {unidad}
                   </Badge>
                 </td>
                 <td>{unidad}</td>
@@ -241,9 +248,9 @@ export default function MovimientosInventarioPanel() {
             {tipoMovimiento === 'entrada' ? '➕ Registrar Entrada' : '➖ Registrar Salida'}
             {selectedItem && (
               <div className="text-muted fs-6 mt-1">
-                {activeTab === 'materias-primas' 
-                  ? selectedItem.nombre 
-                  : selectedItem.producto?.nombre}
+                {activeTab === 'materias-primas'
+                  ? selectedItem.nombre
+                  : (selectedItem.producto?.nombre || selectedItem.producto || '')}
               </div>
             )}
           </Modal.Title>
@@ -252,7 +259,11 @@ export default function MovimientosInventarioPanel() {
           <Modal.Body>
             {selectedItem && (
               <Alert variant="info" className="mb-3">
-                <strong>Stock actual:</strong> {parseFloat(selectedItem.stock_actual).toFixed(3)} {
+                <strong>Stock actual:</strong> {
+                  activeTab === 'materias-primas'
+                    ? Number(parseFloat(selectedItem.stock_actual || 0)).toFixed(2)
+                    : (selectedItem.stock_actual ?? selectedItem.stock ?? '0')
+                } {
                   activeTab === 'materias-primas' 
                     ? selectedItem.unidad_medida 
                     : selectedItem.producto?.unidad_medida
@@ -264,12 +275,12 @@ export default function MovimientosInventarioPanel() {
               <Form.Label>Cantidad *</Form.Label>
               <Form.Control
                 type="number"
-                step="0.001"
-                min="0.001"
+                step={activeTab === 'materias-primas' ? '0.01' : 'any'}
+                min={activeTab === 'materias-primas' ? '0.01' : '0'}
                 value={formData.cantidad}
                 onChange={(e) => setFormData({...formData, cantidad: e.target.value})}
                 required
-                placeholder="0.000"
+                placeholder={activeTab === 'materias-primas' ? '0.00' : 'Ej: 1'}
               />
             </Form.Group>
 

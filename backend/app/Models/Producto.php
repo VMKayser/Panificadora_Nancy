@@ -11,6 +11,9 @@ class Producto extends Model
     use HasFactory, SoftDeletes;
     protected $table = 'productos';
 
+    // Append computed attributes when serializing models to arrays/JSON
+    protected $appends = ['stock'];
+
     protected $fillable = [
         'categorias_id',
         'nombre',
@@ -18,7 +21,6 @@ class Producto extends Model
         'descripcion',
         'descripcion_corta',
         'unidad_medida',
-        'cantidad',
         'presentacion',
         'tiene_variantes',
         'tiene_extras',
@@ -37,7 +39,6 @@ class Producto extends Model
     ];
 
     protected $casts = [
-        'cantidad' => 'decimal:2',
         'precio_minorista' => 'decimal:2',
         'precio_mayorista' => 'decimal:2',
         'es_de_temporada' => 'boolean',
@@ -65,6 +66,20 @@ class Producto extends Model
     public function capacidadProduccion()
     {
         return $this->hasMany(CapacidadProduccion::class, 'producto_id');
+    }
+
+    public function inventario()
+    {
+        return $this->hasOne(InventarioProductoFinal::class, 'producto_id');
+    }
+
+    /**
+     * Accesor conveniente para obtener el stock actual desde la tabla de inventario.
+     * Uso: $producto->stock
+     */
+    public function getStockAttribute()
+    {
+        return $this->inventario?->stock_actual ?? 0;
     }
 
 }

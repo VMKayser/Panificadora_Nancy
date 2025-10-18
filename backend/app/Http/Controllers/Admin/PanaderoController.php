@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Panadero;
+use App\Models\User;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -69,7 +72,11 @@ class PanaderoController extends Controller
         $validator = Validator::make($request->all(), [
             'nombre' => 'required|string|max:100',
             'apellido' => 'required|string|max:100',
-            'email' => 'required|email|max:150|unique:panaderos,email',
+            // Email no debe ser unique: puede existir si estamos convirtiendo un user existente
+            'email' => 'required|email|max:150',
+            // optional admin-specified password (otherwise system generates)
+            'password' => 'sometimes|nullable|string|min:6',
+            'mark_verified' => 'sometimes|boolean',
             'telefono' => 'required|string|max:20',
             'ci' => 'required|string|max:20|unique:panaderos,ci',
             'direccion' => 'nullable|string',
@@ -78,12 +85,11 @@ class PanaderoController extends Controller
             'especialidad' => 'required|in:pan,reposteria,ambos',
             'salario_base' => 'required|numeric|min:0',
             'salario_por_kilo' => 'sometimes|numeric|min:0',
-            'observaciones' => 'nullable|string'
+            'observaciones' => 'sometimes|nullable|string'
         ], [
             'nombre.required' => 'El nombre es obligatorio',
             'apellido.required' => 'El apellido es obligatorio',
             'email.required' => 'El email es obligatorio',
-            'email.unique' => 'Ya existe un panadero con este email',
             'ci.required' => 'El CI es obligatorio',
             'ci.unique' => 'Ya existe un panadero con este CI',
             'fecha_ingreso.required' => 'La fecha de ingreso es obligatoria',
@@ -96,12 +102,58 @@ class PanaderoController extends Controller
             ], 422);
         }
 
-        $panadero = Panadero::create($request->all());
+        // Buscar o crear User asociado
+        $user = User::firstWhere('email', $request->email);
+        $generatedPassword = null;
+        if (!$user) {
+            // Create user without firing observers to avoid partial panadero creation
+            $generatedPassword = $request->filled('password') ? $request->password : Str::random(12);
+            $user = User::withoutEvents(function () use ($request, $generatedPassword) {
+                $data = [
+                    'name' => $request->nombre . ' ' . $request->apellido,
+                    'email' => $request->email,
+                    'password' => Hash::make($generatedPassword),
+                    // set role to panadero so observers / app logic keep consistency
+                    'role' => 'panadero',
+                    'is_active' => 1,
+                ];
+                if ($request->boolean('mark_verified', false)) {
+                    $data['email_verified_at'] = now();
+                }
+                return User::create($data);
+            });
+        } else {
+            // Usuario existente: verificar que no tenga ya un panadero
+            if ($user->panadero) {
+                return response()->json([
+                    'message' => 'Este usuario ya tiene un perfil de panadero asociado',
+                    'panadero' => $user->panadero
+                ], 409);
+            }
+            
+            // ensure role includes panadero
+            if (empty($user->role) || $user->role !== 'panadero') {
+                $user->role = 'panadero';
+                $user->saveQuietly();
+            }
+        }
 
-        return response()->json([
+        // Build panadero data but avoid passing 'email', 'nombre', 'apellido' (those go in users table)
+        $panaderoData = $request->except(['email', 'password', 'mark_verified', 'nombre', 'apellido']);
+        $panaderoData['user_id'] = $user->id;
+
+        $panadero = Panadero::create($panaderoData);
+
+        $response = [
             'message' => 'Panadero creado exitosamente',
             'panadero' => $panadero
-        ], 201);
+        ];
+
+        if ($generatedPassword) {
+            $response['generated_password'] = $generatedPassword;
+        }
+
+        return response()->json($response, 201);
     }
 
     /**
@@ -111,10 +163,20 @@ class PanaderoController extends Controller
     {
         $panadero = Panadero::findOrFail($id);
 
+        // prepare email uniqueness rule against users table, ignoring this panadero's user
+        $userIdForEmail = $panadero->user?->id ?? null;
+
+        $emailRule = 'sometimes|required|email|max:150';
+        if ($userIdForEmail) {
+            $emailRule .= '|unique:users,email,' . $userIdForEmail;
+        } else {
+            $emailRule .= '|unique:users,email';
+        }
+
         $validator = Validator::make($request->all(), [
             'nombre' => 'sometimes|required|string|max:100',
             'apellido' => 'sometimes|required|string|max:100',
-            'email' => 'sometimes|required|email|max:150|unique:panaderos,email,' . $id,
+            'email' => $emailRule,
             'telefono' => 'sometimes|required|string|max:20',
             'ci' => 'sometimes|required|string|max:20|unique:panaderos,ci,' . $id,
             'direccion' => 'nullable|string',
@@ -124,7 +186,7 @@ class PanaderoController extends Controller
             'salario_base' => 'sometimes|required|numeric|min:0',
             'salario_por_kilo' => 'sometimes|numeric|min:0',
             'activo' => 'sometimes|boolean',
-            'observaciones' => 'nullable|string'
+            'observaciones' => 'string'
         ]);
 
         if ($validator->fails()) {
@@ -133,7 +195,33 @@ class PanaderoController extends Controller
             ], 422);
         }
 
-        $panadero->update($request->all());
+        // If email provided, sync it to related user instead of panaderos table
+        if ($request->filled('email')) {
+            if ($panadero->user) {
+                $panadero->user->email = $request->email;
+                $panadero->user->save();
+            } else {
+                // find or create a user for this email and link
+                $user = User::firstWhere('email', $request->email);
+                if (!$user) {
+                    $user = User::withoutEvents(function () use ($request, $panadero) {
+                        return User::create([
+                            'name' => ($request->nombre ?? $panadero->nombre) . ' ' . ($request->apellido ?? $panadero->apellido),
+                            'email' => $request->email,
+                            'password' => Hash::make(Str::random(12)),
+                            'role' => 'panadero',
+                            'is_active' => 1,
+                        ]);
+                    });
+                }
+                $request->merge(['user_id' => $user->id]);
+            }
+        }
+
+        // Remove email from update payload to avoid writing to non-existent column
+        $updateData = $request->except(['email']);
+
+        $panadero->update($updateData);
 
         return response()->json([
             'message' => 'Panadero actualizado exitosamente',
