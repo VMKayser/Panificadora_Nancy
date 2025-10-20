@@ -15,6 +15,7 @@ class Kernel extends ConsoleKernel
     protected $commands = [
         \App\Console\Commands\SyncRoles::class,
         \App\Console\Commands\PoblarInventarioProductos::class,
+        \App\Console\Commands\GenerateDashboardSnapshot::class,
         \App\Console\Commands\IntegrityFixVendedores::class,
     ];
 
@@ -23,7 +24,8 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Define scheduled commands here
+        // Generate dashboard snapshot every 5 minutes (cached JSON)
+        $schedule->command('dashboard:generate')->everyFiveMinutes();
     }
 
     /**

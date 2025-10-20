@@ -72,6 +72,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,vendedor'])->gro
     
     // Estadísticas de productos
     Route::get('/stats', [AdminProductoController::class, 'stats']);
+    // Dashboard snapshot endpoint (cached)
+    Route::get('/dashboard-stats', [\App\Http\Controllers\Api\AdminStatsController::class, 'index']);
     
     // Gestión de pedidos
     Route::get('/pedidos', [AdminPedidoController::class, 'index']);
