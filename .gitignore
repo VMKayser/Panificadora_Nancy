@@ -13,6 +13,11 @@ backend/storage/
 backend/.phpunit.result.cache
 backend/.vscode/
 
+# Temporary backups and DB dumps
+backend/tmp/
+*.sql
+backend/.env.production
+
 # General
 .DS_Store
 *.log
