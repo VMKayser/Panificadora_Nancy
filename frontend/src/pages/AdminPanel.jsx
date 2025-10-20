@@ -11,6 +11,7 @@ import EmpleadoPagosPanel from './admin/EmpleadoPagosPanel';
 import InventarioPanel from './admin/InventarioPanel';
 import CategoriasPanel from './admin/CategoriasPanel';
 import MovimientosInventarioPanel from './admin/MovimientosInventarioPanel';
+import Dashboard from './admin/Dashboard';
 
 const AdminPanel = () => {
   const [productos, setProductos] = useState([]);
@@ -165,6 +166,9 @@ const AdminPanel = () => {
       {/* Pestañas de navegación */}
       <Nav variant="tabs" activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4">
         <Nav.Item>
+          <Nav.Link eventKey="dashboard">📊 Dashboard</Nav.Link>
+        </Nav.Item>
+        <Nav.Item>
           <Nav.Link eventKey="productos">
             📦 Productos
           </Nav.Link>
@@ -212,6 +216,7 @@ const AdminPanel = () => {
         {/* Perfil moved to global navbar */}
       </Nav>
       {activeTab === 'pedidos' && <PedidosPanel />}
+  {activeTab === 'dashboard' && <Dashboard />}
       {activeTab === 'clientes' && <ClientesPanel externalOpenCreate={openClienteSignal} />}
       {activeTab === 'panaderos' && <PanaderosPanel onOpenPayments={(tipo, id, monto) => { setPagosFilters({ empleado_tipo: tipo, empleado_id: id }); setPagosOpenFor({ empleado_tipo: tipo, empleado_id: id, monto }); setActiveTab('pagos'); }} />}
       {activeTab === 'vendedores' && <VendedoresPanel onOpenPayments={(tipo, id, monto) => { setPagosFilters({ empleado_tipo: tipo, empleado_id: id }); setPagosOpenFor({ empleado_tipo: tipo, empleado_id: id, monto }); setActiveTab('pagos'); }} />}
