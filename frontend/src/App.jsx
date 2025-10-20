@@ -17,7 +17,7 @@ import PerfilPanel from './pages/admin/PerfilPanel';
 import MisPedidos from './pages/MisPedidos';
 import Nosotros from './pages/Nosotros';
 import Contacto from './pages/Contacto';
-import UsersList from './pages/Admin/UsersList';
+import UsersList from './pages/admin/UsersList';
 import MisVentas from './pages/Vendedor/MisVentas';
 import ProduccionForm from './pages/Panadero/ProduccionForm';
 

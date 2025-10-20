@@ -9,7 +9,7 @@ import CartDrawer from './CartDrawer';
 
 const Header = () => {
   const { getTotalItems } = useCart();
-  const { user, logout, isAdmin, isVendedor } = useAuth();
+  const { user, logout, isAdmin, isVendedor, isPanadero } = useAuth();
   const navigate = useNavigate();
   const cartItemsCount = getTotalItems();
   const [showCart, setShowCart] = useState(false);
@@ -82,6 +82,13 @@ const Header = () => {
             {(isAdmin || isVendedor) && (
               <Nav.Link as={Link} to="/vendedor" className="mx-2">
                 💰 Punto de Venta
+              </Nav.Link>
+            )}
+
+            {/* Panel Panadero - Solo para panadero y admin */}
+            {(isAdmin || (typeof isPanadero !== 'undefined' && isPanadero)) && (
+              <Nav.Link as={Link} to="/panadero/produccion" className="mx-2">
+                🧑‍🍳 Producción
               </Nav.Link>
             )}
 
