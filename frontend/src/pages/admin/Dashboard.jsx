@@ -20,11 +20,17 @@ const ChartArea = ({ id, type, labels, datasets, options }) => {
     // Chart.js disponible globalmente via CDN
     if (typeof window.Chart === 'undefined') return;
     const ctx = canvasRef.current.getContext('2d');
-    const chart = new window.Chart(ctx, { type, data: { labels, datasets }, options });
+    const defaultOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } };
+    const chart = new window.Chart(ctx, { type, data: { labels, datasets }, options: Object.assign({}, defaultOptions, options || {}) });
     return () => { chart.destroy(); };
   }, [type, labels, datasets, options]);
 
-  return <canvas id={id} ref={canvasRef} style={{ width: '100%', height: 200 }} />;
+  // Wrap canvas in fixed-height container so all charts match visually
+  return (
+    <div style={{ width: '100%', height: 220 }}>
+      <canvas id={id} ref={canvasRef} style={{ width: '100%', height: '100%' }} />
+    </div>
+  );
 };
 
 const Dashboard = () => {
@@ -84,7 +90,7 @@ const Dashboard = () => {
 
       <Row className="mb-4">
         <Col md={6}>
-          <Card className="shadow-sm p-3">
+          <Card className="shadow-sm p-3" style={{ minHeight: 340 }}>
             <h5>Panadero con más producción</h5>
             <Table size="sm" borderless>
               <tbody>
@@ -100,22 +106,24 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col md={6}>
-          <Card className="shadow-sm p-3">
+          <Card className="shadow-sm p-3" style={{ minHeight: 340, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <h5>Productos top por rentabilidad</h5>
-            <ChartArea id="profitChart" type="bar" labels={profitLabels} datasets={[{ label: 'Profit (Bs.)', data: profitValues, backgroundColor: '#8b6f47' }]} />
+            <div style={{ flex: 1 }}>
+              <ChartArea id="profitChart" type="bar" labels={profitLabels} datasets={[{ label: 'Profit (Bs.)', data: profitValues, backgroundColor: '#8b6f47' }]} />
+            </div>
           </Card>
         </Col>
       </Row>
 
       <Row>
         <Col md={8}>
-          <Card className="shadow-sm p-3">
+          <Card className="shadow-sm p-3" style={{ minHeight: 320 }}>
             <h5>Ventas por temporada (últimos 7 días)</h5>
             <ChartArea id="ventasLine" type="line" labels={ventasLabels} datasets={[{ label: 'Ventas', data: ventasValues, borderColor: '#8b6f47', backgroundColor: 'rgba(139,111,71,0.1)', fill: true }]} />
           </Card>
         </Col>
         <Col md={4}>
-          <Card className="shadow-sm p-3">
+          <Card className="shadow-sm p-3" style={{ minHeight: 320, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <h5>Top productos por ventas</h5>
             <ChartArea id="topProdPie" type="pie" labels={prodLabels} datasets={[{ data: prodValues, backgroundColor: ['#8b6f47','#c28f5b','#f3c9a6','#d9b79a','#e8e2d8'] }]} />
           </Card>
