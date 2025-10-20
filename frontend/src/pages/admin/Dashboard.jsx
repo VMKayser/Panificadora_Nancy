@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Row, Col, Card, Table } from 'react-bootstrap';
 
 const MiniBar = ({ values }) => {
@@ -10,6 +10,21 @@ const MiniBar = ({ values }) => {
       ))}
     </div>
   );
+};
+
+const ChartArea = ({ id, type, labels, datasets, options }) => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    // Chart.js disponible globalmente via CDN
+    if (typeof window.Chart === 'undefined') return;
+    const ctx = canvasRef.current.getContext('2d');
+    const chart = new window.Chart(ctx, { type, data: { labels, datasets }, options });
+    return () => { chart.destroy(); };
+  }, [type, labels, datasets, options]);
+
+  return <canvas id={id} ref={canvasRef} style={{ width: '100%', height: 200 }} />;
 };
 
 const Dashboard = () => {
@@ -26,6 +41,17 @@ const Dashboard = () => {
       Cargando dashboard...
     </Card>
   );
+
+  // Prepare data for charts
+  const ventasLabels = data.ventas_por_temporada.map(v => v.fecha);
+  const ventasValues = data.ventas_por_temporada.map(v => v.ventas);
+
+  const topProducts = data.productos.slice().sort((a,b)=>b.ventas-a.ventas).slice(0,5);
+  const prodLabels = topProducts.map(p=>p.nombre);
+  const prodValues = topProducts.map(p=>p.ventas);
+
+  const profitLabels = data.productos.slice().sort((a,b)=>b.profit-a.profit).slice(0,5).map(p=>p.nombre);
+  const profitValues = data.productos.slice().sort((a,b)=>b.profit-a.profit).slice(0,5).map(p=>p.profit);
 
   return (
     <div>
@@ -76,16 +102,7 @@ const Dashboard = () => {
         <Col md={6}>
           <Card className="shadow-sm p-3">
             <h5>Productos top por rentabilidad</h5>
-            <Table size="sm">
-              <thead>
-                <tr><th>Producto</th><th>Ventas</th><th>Profit</th></tr>
-              </thead>
-              <tbody>
-                {data.productos.sort((a,b)=>b.profit-a.profit).slice(0,5).map(prod => (
-                  <tr key={prod.id}><td>{prod.nombre}</td><td>{prod.ventas}</td><td>Bs. {prod.profit.toFixed(2)}</td></tr>
-                ))}
-              </tbody>
-            </Table>
+            <ChartArea id="profitChart" type="bar" labels={profitLabels} datasets={[{ label: 'Profit (Bs.)', data: profitValues, backgroundColor: '#8b6f47' }]} />
           </Card>
         </Col>
       </Row>
@@ -94,16 +111,13 @@ const Dashboard = () => {
         <Col md={8}>
           <Card className="shadow-sm p-3">
             <h5>Ventas por temporada (últimos 7 días)</h5>
-            <MiniBar values={data.ventas_por_temporada.map(v=>v.ventas)} />
-            <small className="text-muted">(barra representa volumen diario)</small>
+            <ChartArea id="ventasLine" type="line" labels={ventasLabels} datasets={[{ label: 'Ventas', data: ventasValues, borderColor: '#8b6f47', backgroundColor: 'rgba(139,111,71,0.1)', fill: true }]} />
           </Card>
         </Col>
         <Col md={4}>
           <Card className="shadow-sm p-3">
-            <h5>Productos más vendidos</h5>
-            <ol>
-              {data.productos.sort((a,b)=>b.ventas-a.ventas).slice(0,5).map(p=> <li key={p.id}>{p.nombre} ({p.ventas})</li>)}
-            </ol>
+            <h5>Top productos por ventas</h5>
+            <ChartArea id="topProdPie" type="pie" labels={prodLabels} datasets={[{ data: prodValues, backgroundColor: ['#8b6f47','#c28f5b','#f3c9a6','#d9b79a','#e8e2d8'] }]} />
           </Card>
         </Col>
       </Row>
