@@ -7,6 +7,7 @@ use App\Models\Vendedor;
 use App\Models\Panadero;
 use App\Models\Cliente;
 use Illuminate\Support\Facades\DB;
+use App\Support\SafeTransaction;
 
 class UserObserver
 {
@@ -135,7 +136,7 @@ class UserObserver
      */
     protected function asignarTablaSegunRol(User $user): void
     {
-        DB::transaction(function () use ($user) {
+    SafeTransaction::run(function () use ($user) {
             switch ($user->role) {
                 case 'vendedor':
                     // Crear registro en tabla vendedores si no existe
@@ -192,7 +193,10 @@ class UserObserver
                             }
                         }
 
-                        Cliente::firstOrCreate(
+                        // Use updateOrInsert on the query builder to avoid nested
+                        // transactions inside model observers which can create
+                        // savepoints and lead to desynchronization with PDO.
+                        Cliente::query()->updateOrInsert(
                             ['user_id' => $user->id],
                             [
                                 'nombre' => $nombre,
