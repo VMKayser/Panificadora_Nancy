@@ -64,9 +64,13 @@ class PedidoController extends Controller
 
             try {
                 // Validar stock para cada detalle (venta mostrador)
+                // Prefetch productos para evitar N+1
                 $insufficient = [];
+                $detProdIds = collect($validated['detalles'])->pluck('producto_id')->unique()->values()->all();
+                $productosMap = Producto::whereIn('id', $detProdIds)->with('inventario')->get()->keyBy('id');
+
                 foreach ($validated['detalles'] as $detalle) {
-                    $productoCheck = Producto::find($detalle['producto_id']);
+                    $productoCheck = $productosMap->get($detalle['producto_id']);
                     if ($productoCheck) {
                         $available = $productoCheck->inventario->stock_actual ?? $productoCheck->stock_actual ?? $productoCheck->stock ?? null;
                         if ($available !== null && $available < $detalle['cantidad']) {
@@ -246,10 +250,15 @@ class PedidoController extends Controller
         // Recolectar productos y validar disponibilidad para envio nacional
         $blockingProducts = [];
         $insufficientStock = [];
+
+        // Prefetch productos to avoid N+1 queries
+        $productIds = collect($validated['productos'])->pluck('id')->unique()->values()->all();
+        $productosMap = Producto::whereIn('id', $productIds)->with('inventario')->get()->keyBy('id');
+
         foreach ($validated['productos'] as $productoData) {
-            $producto = Producto::find($productoData['id']);
+            $producto = $productosMap->get($productoData['id']);
             $cantidad = $productoData['cantidad'];
-            $precioUnitario = $producto->precio_minorista;
+            $precioUnitario = $producto?->precio_minorista ?? 0;
             $subtotalProducto = $precioUnitario * $cantidad;
 
             $available = null;
@@ -258,17 +267,17 @@ class PedidoController extends Controller
             }
             if ($available !== null && $cantidad > $available) {
                 $insufficientStock[] = [
-                    'id' => $producto->id,
-                    'nombre' => $producto->nombre,
+                    'id' => $producto->id ?? $productoData['id'],
+                    'nombre' => $producto->nombre ?? 'Desconocido',
                     'disponible' => $available,
                     'solicitado' => $cantidad,
                 ];
             }
 
-            if ($validated['tipo_entrega'] === 'envio_nacional' && !$producto->permite_envio_nacional) {
+            if ($validated['tipo_entrega'] === 'envio_nacional' && (!$producto?->permite_envio_nacional)) {
                 $blockingProducts[] = [
-                    'id' => $producto->id,
-                    'nombre' => $producto->nombre,
+                    'id' => $producto->id ?? $productoData['id'],
+                    'nombre' => $producto->nombre ?? 'Desconocido',
                     'cantidad' => $cantidad,
                 ];
             }
@@ -424,11 +433,14 @@ class PedidoController extends Controller
             }
 
             // Obtener pedidos del cliente
+            $perPage = (int) $request->get('per_page', 20);
+            $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+
             $pedidos = Pedido::where('cliente_id', $cliente->id)
                 ->orWhere('cliente_email', $user->email)
                 ->with(['detalles.producto.imagenes', 'metodoPago'])
                 ->orderBy('created_at', 'desc')
-                ->get();
+                ->paginate($perPage);
 
             return response()->json([
                 'pedidos' => $pedidos,
