@@ -6,6 +6,7 @@ use App\Models\Producto;
 use App\Models\InventarioProductoFinal;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use App\Support\SafeTransaction;
 
 class PoblarInventarioProductos extends Command
 {
@@ -47,25 +48,24 @@ class PoblarInventarioProductos extends Command
         $creados = 0;
         $errores = 0;
 
-        DB::beginTransaction();
         try {
-            foreach ($productosActivos as $producto) {
-                try {
-                    InventarioProductoFinal::create([
-                        'producto_id' => $producto->id,
-                        'stock_actual' => 0,
-                        'stock_minimo' => 0,
-                        'costo_promedio' => 0,
-                    ]);
-                    $creados++;
-                    $this->line("  ✓ Producto #{$producto->id} - {$producto->nombre}");
-                } catch (\Exception $e) {
-                    $errores++;
-                    $this->error("  ✗ Error en producto #{$producto->id}: " . $e->getMessage());
+            SafeTransaction::run(function () use ($productosActivos, &$creados, &$errores) {
+                foreach ($productosActivos as $producto) {
+                    try {
+                        InventarioProductoFinal::create([
+                            'producto_id' => $producto->id,
+                            'stock_actual' => 0,
+                            'stock_minimo' => 0,
+                            'costo_promedio' => 0,
+                        ]);
+                        $creados++;
+                        $this->line("  ✓ Producto #{$producto->id} - {$producto->nombre}");
+                    } catch (\Exception $e) {
+                        $errores++;
+                        $this->error("  ✗ Error en producto #{$producto->id}: " . $e->getMessage());
+                    }
                 }
-            }
-
-            DB::commit();
+            });
 
             $this->newLine();
             $this->info("✅ Proceso completado:");
@@ -81,7 +81,6 @@ class PoblarInventarioProductos extends Command
             return 0;
 
         } catch (\Exception $e) {
-            DB::rollBack();
             $this->error('❌ Error durante la transacción: ' . $e->getMessage());
             return 1;
         }
