@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Support\SafeTransaction;
 
 class ProduccionController extends Controller
 {
@@ -60,7 +61,11 @@ class ProduccionController extends Controller
             'harina_real_usada' => 'required|numeric|min:0.001',
             'cantidad_producida' => 'required|numeric|min:0.001',
             'unidad' => 'required|in:unidades,kg,docenas',
-            'observaciones' => 'nullable|string'
+            'observaciones' => 'nullable|string',
+            // ingredientes extra: array of { materia_prima_id, cantidad }
+            'ingredientes' => 'nullable|array',
+            'ingredientes.*.materia_prima_id' => 'required_with:ingredientes|exists:materias_primas,id',
+            'ingredientes.*.cantidad' => 'required_with:ingredientes|numeric|min:0.0001',
         ]);
 
         if ($validator->fails()) {
@@ -70,56 +75,57 @@ class ProduccionController extends Controller
             ], 422);
         }
 
+        // Obtener la receta activa del producto y realizar verificaciones antes de abrir la transacción
+        $receta = Receta::where('producto_id', $request->producto_id)
+            ->where('activa', true)
+            ->first();
+
+        if (!$receta) {
+            return response()->json([
+                'message' => 'No hay receta activa para este producto'
+            ], 422);
+        }
+
+        // Verificar stock disponible antes de iniciar la transacción
+        if (!$receta->verificarStock($request->cantidad_producida)) {
+            return response()->json([
+                'message' => 'Stock insuficiente de ingredientes',
+                'ingredientes_faltantes' => $receta->ingredientes->filter(function ($ingrediente) {
+                    return !$ingrediente->materiaPrima->tieneStock($ingrediente->cantidad);
+                })->map(function ($ingrediente) {
+                    return [
+                        'nombre' => $ingrediente->materiaPrima->nombre,
+                        'necesario' => $ingrediente->cantidad,
+                        'disponible' => $ingrediente->materiaPrima->stock_actual,
+                        'unidad' => $ingrediente->materiaPrima->unidad_medida
+                    ];
+                })->values()
+            ], 422);
+        }
+
         try {
-            DB::beginTransaction();
+            $produccion = SafeTransaction::run(function () use ($request, $receta) {
+                // Crear registro de producción
+                $produccion = Produccion::create([
+                    'producto_id' => $request->producto_id,
+                    'receta_id' => $receta->id,
+                    'user_id' => Auth::id(),
+                    'fecha_produccion' => $request->fecha_produccion,
+                    'hora_inicio' => $request->hora_inicio,
+                    'hora_fin' => $request->hora_fin,
+                    'cantidad_producida' => $request->cantidad_producida,
+                    'unidad' => $request->unidad,
+                    'harina_real_usada' => $request->harina_real_usada,
+                    'estado' => 'en_proceso',
+                    'observaciones' => $request->observaciones
+                ]);
 
-            // Obtener la receta activa del producto
-            $receta = Receta::where('producto_id', $request->producto_id)
-                ->where('activa', true)
-                ->first();
+                // Procesar la producción (descuenta inventario)
+                $extraIngredientes = $request->get('ingredientes', []);
+                $produccion->procesar($extraIngredientes);
 
-            if (!$receta) {
-                return response()->json([
-                    'message' => 'No hay receta activa para este producto'
-                ], 422);
-            }
-
-            // Verificar stock disponible
-            if (!$receta->verificarStock()) {
-                return response()->json([
-                    'message' => 'Stock insuficiente de ingredientes',
-                    'ingredientes_faltantes' => $receta->ingredientes->filter(function ($ingrediente) {
-                        return !$ingrediente->materiaPrima->tieneStock($ingrediente->cantidad);
-                    })->map(function ($ingrediente) {
-                        return [
-                            'nombre' => $ingrediente->materiaPrima->nombre,
-                            'necesario' => $ingrediente->cantidad,
-                            'disponible' => $ingrediente->materiaPrima->stock_actual,
-                            'unidad' => $ingrediente->materiaPrima->unidad_medida
-                        ];
-                    })->values()
-                ], 422);
-            }
-
-            // Crear registro de producción
-            $produccion = Produccion::create([
-                'producto_id' => $request->producto_id,
-                'receta_id' => $receta->id,
-                'user_id' => Auth::id(),
-                'fecha_produccion' => $request->fecha_produccion,
-                'hora_inicio' => $request->hora_inicio,
-                'hora_fin' => $request->hora_fin,
-                'cantidad_producida' => $request->cantidad_producida,
-                'unidad' => $request->unidad,
-                'harina_real_usada' => $request->harina_real_usada,
-                'estado' => 'en_proceso',
-                'observaciones' => $request->observaciones
-            ]);
-
-            // Procesar la producción (descuenta inventario)
-            $produccion->procesar();
-
-            DB::commit();
+                return $produccion;
+            });
 
             return response()->json([
                 'message' => 'Producción registrada exitosamente',
@@ -127,7 +133,6 @@ class ProduccionController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
                 'message' => 'Error al registrar producción: ' . $e->getMessage()
             ], 500);
@@ -206,25 +211,22 @@ class ProduccionController extends Controller
         }
 
         try {
-            DB::beginTransaction();
-
-            // TODO: Aquí se debería revertir los movimientos de inventario
-            // Por ahora solo cambiar el estado
-
-            $produccion->update([
-                'estado' => 'cancelado',
-                'observaciones' => ($produccion->observaciones ?? '') . "\n\nCANCELADO: " . $request->motivo
-            ]);
-
-            DB::commit();
+            $prod = SafeTransaction::run(function () use ($produccion, $request) {
+                // TODO: Aquí se debería revertir los movimientos de inventario
+                // Por ahora solo cambiar el estado
+                $produccion->update([
+                    'estado' => 'cancelado',
+                    'observaciones' => ($produccion->observaciones ?? '') . "\n\nCANCELADO: " . $request->motivo
+                ]);
+                return $produccion->fresh();
+            });
 
             return response()->json([
                 'message' => 'Producción cancelada exitosamente',
-                'data' => $produccion->fresh()
+                'data' => $prod
             ]);
 
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
                 'message' => 'Error al cancelar producción: ' . $e->getMessage()
             ], 500);
