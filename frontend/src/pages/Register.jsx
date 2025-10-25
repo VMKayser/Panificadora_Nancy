@@ -7,7 +7,8 @@ export default function Register() {
   const navigate = useNavigate();
   const { register } = useAuth();
   const [formData, setFormData] = useState({
-    name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     phone: '',
     password: '',
@@ -33,7 +34,16 @@ export default function Register() {
     setLoading(true);
 
     try {
-      const result = await register(formData);
+      // Compose the full 'name' field expected by the backend from the two inputs
+      const payload = {
+        ...formData,
+        name: `${formData.first_name} ${formData.last_name}`.trim(),
+      };
+      // backend expects 'name' (full name); remove helper fields to keep payload clean
+      delete payload.first_name;
+      delete payload.last_name;
+
+      const result = await register(payload);
       
       if (result.success) {
         // Si el backend solicita verificación por correo, mostrar mensaje adecuado
@@ -70,22 +80,36 @@ export default function Register() {
                 </div>
 
                 <form onSubmit={handleSubmit}>
-                  {/* Nombre */}
-                  <div className="mb-3">
-                    <label htmlFor="name" className="form-label fw-semibold">
-                      Nombre completo
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      id="name"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleChange}
-                      required
-                      placeholder="Juan Pérez"
-                      style={{ borderColor: '#8b6f47' }}
-                    />
+                  {/* Nombre y Apellido (campos separados) */}
+                  <div className="row g-2 mb-3">
+                    <div className="col">
+                      <label htmlFor="first_name" className="form-label fw-semibold">Nombre</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        id="first_name"
+                        name="first_name"
+                        value={formData.first_name}
+                        onChange={handleChange}
+                        required
+                        placeholder="Juan"
+                        style={{ borderColor: '#8b6f47' }}
+                      />
+                    </div>
+                    <div className="col">
+                      <label htmlFor="last_name" className="form-label fw-semibold">Apellido</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        id="last_name"
+                        name="last_name"
+                        value={formData.last_name}
+                        onChange={handleChange}
+                        required
+                        placeholder="Pérez"
+                        style={{ borderColor: '#8b6f47' }}
+                      />
+                    </div>
                   </div>
 
                   {/* Email */}
