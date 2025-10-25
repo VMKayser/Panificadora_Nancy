@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { admin } from '../../services/api';
 import { Row, Col, Card, Table } from 'react-bootstrap';
 
 const MiniBar = ({ values }) => {
@@ -38,7 +39,29 @@ const Dashboard = () => {
 
   useEffect(() => {
     let mounted = true;
-    fetch(`${import.meta.env.BASE_URL}sample-dashboard.json`).then(r => r.json()).then(d => { if (mounted) setData(d); }).catch(() => {});
+
+    // First try to load the dashboard payload from the backend API.
+    // If the API is unreachable (dev mode or network issue), fall back to the sample JSON
+    // so the UI still renders for local development.
+    (async () => {
+      try {
+        const d = await admin.getDashboardInventario();
+        if (mounted) setData(d);
+        return;
+      } catch (err) {
+        // If API call fails, try the sample JSON fallback (keeps previous behavior)
+        try {
+          const resp = await fetch(`${import.meta.env.BASE_URL}sample-dashboard.json`);
+          if (!resp.ok) throw new Error('sample not available');
+          const d = await resp.json();
+          if (mounted) setData(d);
+        } catch (e) {
+          // swallow: leave data null so the loading state shows
+          console.warn('[Dashboard] Could not load dashboard from API nor sample JSON:', err.message || err);
+        }
+      }
+    })();
+
     return () => { mounted = false; };
   }, []);
 
