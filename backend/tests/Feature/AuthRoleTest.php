@@ -19,9 +19,12 @@ class AuthRoleTest extends TestCase
 
         // Ensure a fresh database schema for tests and seed required data
         // Use migrate:fresh to ensure tables exist in the testing connection
-        $this->artisan('migrate:fresh', ['--seed' => true]);
-    // Some test seeders (TestUsersSeeder) are not included in DatabaseSeeder; run it explicitly
-    $this->artisan('db:seed', ['--class' => TestUsersSeeder::class]);
+        // Use the Artisan facade call() instead of $this->artisan() to avoid
+        // creating a PendingCommand whose destructor disconnects the PDO
+        // mid-test and can desynchronize Laravel's transaction stack.
+        \Illuminate\Support\Facades\Artisan::call('migrate:fresh', ['--seed' => true]);
+        // Some test seeders (TestUsersSeeder) are not included in DatabaseSeeder; run it explicitly
+        \Illuminate\Support\Facades\Artisan::call('db:seed', ['--class' => TestUsersSeeder::class]);
     }
 
     public function test_admin_can_login_and_has_admin_role()

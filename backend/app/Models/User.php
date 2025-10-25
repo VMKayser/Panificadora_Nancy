@@ -58,6 +58,14 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Send the email verification notification using our custom Spanish notification.
+     */
+    public function sendEmailVerificationNotification()
+    {
+        $this->notify(new \App\Notifications\VerifyEmailNotification());
+    }
+
+    /**
      * Verificar si el usuario tiene un rol específico
      */
     public function hasRole($roleName)

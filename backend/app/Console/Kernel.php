@@ -15,7 +15,9 @@ class Kernel extends ConsoleKernel
     protected $commands = [
         \App\Console\Commands\SyncRoles::class,
         \App\Console\Commands\PoblarInventarioProductos::class,
+        // Temporary inventory simulation commands removed; keep test files instead
         \App\Console\Commands\GenerateDashboardSnapshot::class,
+        \App\Console\Commands\DashboardClearCache::class,
         \App\Console\Commands\IntegrityFixVendedores::class,
     ];
 

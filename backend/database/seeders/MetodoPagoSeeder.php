@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use App\Models\MetodoPago;
+use Illuminate\Support\Facades\DB;
 
 class MetodoPagoSeeder extends Seeder
 {
@@ -13,9 +14,8 @@ class MetodoPagoSeeder extends Seeder
      */
     public function run(): void
     {
-        MetodoPago::query()->delete();
-
-        $metodosPago = [
+    // Use DB::upsert to make seeding atomic/idempotent (avoids race duplicate-key issues)
+    $metodosPago = [
             [
                 'nombre' => 'QR Simple BNB',
                 'codigo' => 'qr_simple',
@@ -53,9 +53,12 @@ class MetodoPagoSeeder extends Seeder
                 'orden' => 4,
             ],
         ];
-
-        foreach ($metodosPago as $metodo) {
-            MetodoPago::create($metodo);
-        }
+        // Use a single upsert call to avoid the select-then-insert race that can lead to
+        // duplicate-key errors when seeding is invoked repeatedly or concurrently.
+        DB::table('metodos_pago')->upsert(
+            $metodosPago,
+            ['codigo'],
+            ['nombre', 'descripcion', 'icono', 'esta_activo', 'comision_porcentaje', 'orden']
+        );
     }
 }

@@ -6,6 +6,7 @@ import ProductCard from '../components/ProductCard';
 import Footer from '../components/Footer';
 import '../estilos.css'; // Importar estilos de presentación
 import { useSEO, generateProductListSchema } from '../hooks/useSEO';
+import { useSiteConfig } from '../context/SiteConfigContext';
 
 const Home = () => {
   const [productosTemporada, setProductosTemporada] = useState([]);
@@ -13,6 +14,7 @@ const Home = () => {
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('todos');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { logoUrl } = useSiteConfig();
 
   // SEO debe llamarse SIEMPRE, antes de cualquier return condicional
   useSEO({
@@ -79,9 +81,13 @@ const Home = () => {
         </div>
         <div className="logo">
           <img 
-            src={`${import.meta.env.BASE_URL}images/logo.jpg`}
+            src={logoUrl || `${import.meta.env.BASE_URL}images/logo.jpg`}
             alt="Logo Panificadora Nancy" 
             className="hero-logo"
+            loading="lazy"
+            decoding="async"
+            srcSet={`${logoUrl || `${import.meta.env.BASE_URL}images/logo.jpg`} 200w`}
+            sizes="(max-width: 768px) 40vw, 200px"
           />
         </div>
       </div>

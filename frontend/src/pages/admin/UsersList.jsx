@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import userService from '../../services/userService';
 import './UsersList.css';
+import useDebounce from '../../hooks/useDebounce';
 
 const UsersList = () => {
   const [usuarios, setUsuarios] = useState([]);
@@ -30,17 +31,20 @@ const UsersList = () => {
     total: 0
   });
 
-  useEffect(() => {
-    cargarUsuarios();
-    cargarEstadisticas();
-  }, [filtros, paginacion.paginaActual]);
+  const debouncedBuscar = useDebounce(filtros.buscar, 350);
 
-  const cargarUsuarios = async () => {
+  useEffect(() => {
+    // Use debounced search value to avoid calling API on every keystroke
+    cargarUsuarios(debouncedBuscar);
+    cargarEstadisticas();
+  }, [filtros.role, debouncedBuscar, paginacion.paginaActual]);
+
+  const cargarUsuarios = async (buscarOverride) => {
     try {
       setLoading(true);
       const params = {
         page: paginacion.paginaActual,
-        buscar: filtros.buscar,
+        buscar: typeof buscarOverride !== 'undefined' ? buscarOverride : filtros.buscar,
         role: filtros.role
       };
 

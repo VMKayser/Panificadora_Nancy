@@ -16,6 +16,7 @@ import {
 import { toast } from 'react-toastify';
 import { pananaderoService } from '../../services/empleadosService';
 import './PanaderosList.css';
+import useDebounce from '../../hooks/useDebounce';
 
 const PanaderosList = () => {
   const navigate = useNavigate();
@@ -41,15 +42,18 @@ const PanaderosList = () => {
     total: 0
   });
 
-  useEffect(() => {
-    cargarPanaderos();
-    cargarEstadisticas();
-  }, [filtros]);
+  const debouncedBuscar = useDebounce(filtros.buscar, 350);
 
-  const cargarPanaderos = async () => {
+  useEffect(() => {
+    cargarPanaderos(debouncedBuscar);
+    cargarEstadisticas();
+  }, [filtros.activo, filtros.turno, filtros.especialidad, filtros.sort_by, filtros.sort_order, filtros.per_page, filtros.page, debouncedBuscar]);
+
+  const cargarPanaderos = async (buscarOverride) => {
     try {
       setLoading(true);
-      const response = await pananaderoService.getAll(filtros);
+      const params = { ...filtros, buscar: typeof buscarOverride !== 'undefined' ? buscarOverride : filtros.buscar };
+      const response = await pananaderoService.getAll(params);
       setPanaderos(response.data);
       setPaginacion({
         current_page: response.current_page,

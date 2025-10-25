@@ -119,6 +119,10 @@ const ProductModal = ({ show, onHide, producto }) => {
             <img
               src={imagen}
               alt={producto.nombre}
+              loading="lazy"
+              decoding="async"
+              srcSet={producto?.imagenes?.[0] ? `${producto.imagenes[0].url_imagen || producto.imagenes[0].url_imagen_completa || ''} 400w, ${producto.imagenes[0].url_imagen_completa || producto.imagenes[0].url_imagen || ''} 1000w` : undefined}
+              sizes="(max-width: 768px) 90vw, 400px"
               style={{ width: '100%', borderRadius: '12px', marginBottom: '20px' }}
             />
           </div>
@@ -142,8 +146,8 @@ const ProductModal = ({ show, onHide, producto }) => {
               Bs {parseFloat(producto.precio_minorista).toFixed(2)}
             </h3>
 
-            {/* Descripción completa del producto */}
-            {producto.descripcion && (
+            {/* Descripción corta o resumen (si existe) */}
+            {(producto.descripcion_corta || producto.descripcion) && (
               <div style={{
                 backgroundColor: '#f8f9fa',
                 padding: '12px 16px',
@@ -154,7 +158,7 @@ const ProductModal = ({ show, onHide, producto }) => {
                 color: '#444'
               }}>
                 <strong style={{ color: '#534031', display: 'block', marginBottom: '6px' }}>Descripción:</strong>
-                {producto.descripcion}
+                {producto.descripcion_corta ? producto.descripcion_corta : (producto.descripcion.length > 120 ? producto.descripcion.substring(0, 120) + '...' : producto.descripcion)}
               </div>
             )}
 
@@ -206,6 +210,8 @@ const ProductModal = ({ show, onHide, producto }) => {
                       <img 
                         src={extra.imagen_url} 
                         alt={extra.nombre}
+                        loading="lazy"
+                        decoding="async"
                         style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
                       />
                     )}
@@ -273,13 +279,15 @@ const ProductModal = ({ show, onHide, producto }) => {
           </div>
         </div>
 
-        {/* Descripción completa */}
-        <div style={{ marginTop: '24px', borderTop: '1px solid #ddd', paddingTop: '24px' }}>
-          <h5 style={{ marginBottom: '16px', color: '#534031' }}>Descripción Detallada</h5>
-          <div style={{ whiteSpace: 'pre-line', lineHeight: '1.8', color: '#333' }}>
-            {producto.descripcion}
+        {/* Descripción completa (detalle) - sólo mostrar si hay descripción completa y no está vacía */}
+        {producto.descripcion && (
+          <div style={{ marginTop: '24px', borderTop: '1px solid #ddd', paddingTop: '24px' }}>
+            <h5 style={{ marginBottom: '16px', color: '#534031' }}>Descripción Detallada</h5>
+            <div style={{ whiteSpace: 'pre-line', lineHeight: '1.8', color: '#333' }}>
+              {producto.descripcion}
+            </div>
           </div>
-        </div>
+        )}
       </Modal.Body>
       <Modal.Footer style={{ borderTop: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>

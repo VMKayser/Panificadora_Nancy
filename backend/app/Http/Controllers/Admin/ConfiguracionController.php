@@ -57,7 +57,8 @@ class ConfiguracionController extends Controller
             ], 422);
         }
 
-        $config = ConfiguracionSistema::updateOrCreate(
+        // Use query builder updateOrInsert to avoid firing model events / creating savepoints
+        ConfiguracionSistema::query()->updateOrInsert(
             ['clave' => $request->clave],
             [
                 'valor' => $request->valor,
@@ -66,6 +67,9 @@ class ConfiguracionController extends Controller
                 'grupo' => $request->grupo
             ]
         );
+
+        // Fetch the model instance to return
+        $config = ConfiguracionSistema::where('clave', $request->clave)->first();
 
         return response()->json([
             'message' => 'Configuración guardada exitosamente',
@@ -200,6 +204,20 @@ class ConfiguracionController extends Controller
                 'grupo' => 'sistema'
             ],
             [
+                'clave' => 'whatsapp_empresa',
+                'valor' => '+59176490687',
+                'tipo' => 'texto',
+                'descripcion' => 'Número de WhatsApp para envío de comprobantes',
+                'grupo' => 'sistema'
+            ],
+            [
+                'clave' => 'qr_mensaje_plantilla',
+                'valor' => 'Pago por pedido en {empresa} — Total: Bs {total}. Envía el comprobante a {whatsapp} con tu número de pedido {numero_pedido}.',
+                'tipo' => 'texto',
+                'descripcion' => 'Plantilla del mensaje que se copia al cliente cuando usa QR. Soporta {empresa},{total},{whatsapp},{numero_pedido}',
+                'grupo' => 'sistema'
+            ],
+            [
                 'clave' => 'direccion',
                 'valor' => 'Av. Martín Cardenas, Quillacollo, Cochabamba',
                 'tipo' => 'texto',
@@ -223,7 +241,8 @@ class ConfiguracionController extends Controller
         ];
 
         foreach ($configuracionesDefecto as $config) {
-            ConfiguracionSistema::updateOrCreate(
+            // Use updateOrInsert for idempotent seeding without model events
+            ConfiguracionSistema::query()->updateOrInsert(
                 ['clave' => $config['clave']],
                 $config
             );

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { vendedorService } from '../../services/empleadosService';
 import './VendedoresList.css';
+import useDebounce from '../../hooks/useDebounce';
 
 const VendedoresList = () => {
   const [vendedores, setVendedores] = useState([]);
@@ -32,17 +33,19 @@ const VendedoresList = () => {
     total: 0
   });
 
-  useEffect(() => {
-    cargarVendedores();
-    cargarEstadisticas();
-  }, [filtros, paginacion.paginaActual]);
+  const debouncedBuscar = useDebounce(filtros.buscar, 350);
 
-  const cargarVendedores = async () => {
+  useEffect(() => {
+    cargarVendedores(debouncedBuscar);
+    cargarEstadisticas();
+  }, [filtros.estado, filtros.turno, debouncedBuscar, paginacion.paginaActual]);
+
+  const cargarVendedores = async (buscarOverride) => {
     try {
       setLoading(true);
       const params = {
         page: paginacion.paginaActual,
-        buscar: filtros.buscar,
+        buscar: typeof buscarOverride !== 'undefined' ? buscarOverride : filtros.buscar,
         estado: filtros.estado,
         turno: filtros.turno
       };

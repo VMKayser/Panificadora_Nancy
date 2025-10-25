@@ -298,8 +298,8 @@ class InventarioController extends Controller
                 DB::raw("SUM(CASE WHEN tipo_movimiento = 'salida_merma' THEN cantidad ELSE 0 END) as mermas"),
                 DB::raw("SUM(CASE WHEN tipo_movimiento IN ('salida_venta','venta') THEN cantidad ELSE 0 END) as ventas")
             )
-            ->whereBetween('created_at', [$fechaDesde, $fechaHasta])
-            ->join('productos', 'movimiento_producto_final.producto_id', '=', 'productos.id')
+            ->whereBetween('movimientos_productos_finales.created_at', [$fechaDesde, $fechaHasta])
+            ->join('productos', 'movimientos_productos_finales.producto_id', '=', 'productos.id')
             ->whereNull('productos.deleted_at')
             ->groupBy('producto_id')
             ->get();
@@ -394,19 +394,19 @@ class InventarioController extends Controller
                 DB::raw('COUNT(*) as registros')
             )
             ->where('tipo_movimiento', 'salida_merma')
-            ->whereBetween('created_at', [$fechaDesde, $fechaHasta])
-            ->join('productos', 'movimiento_producto_final.producto_id', '=', 'productos.id')
+            ->whereBetween('movimientos_productos_finales.created_at', [$fechaDesde, $fechaHasta])
+            ->join('productos', 'movimientos_productos_finales.producto_id', '=', 'productos.id')
             ->whereNull('productos.deleted_at')
             ->groupBy('producto_id')
             ->get();
 
         $total_mermas = (float) MovimientoProductoFinal::where('tipo_movimiento', 'salida_merma')
-            ->whereBetween('created_at', [$fechaDesde, $fechaHasta])->sum('cantidad');
+            ->whereBetween('movimientos_productos_finales.created_at', [$fechaDesde, $fechaHasta])->sum('cantidad');
 
         // por_dia aggregation
-        $porDia = MovimientoProductoFinal::select(DB::raw("DATE(created_at) as fecha"), DB::raw('SUM(cantidad) as cantidad'), DB::raw('COUNT(*) as registros'))
+        $porDia = MovimientoProductoFinal::select(DB::raw("DATE(movimientos_productos_finales.created_at) as fecha"), DB::raw('SUM(cantidad) as cantidad'), DB::raw('COUNT(*) as registros'))
             ->where('tipo_movimiento', 'salida_merma')
-            ->whereBetween('created_at', [$fechaDesde, $fechaHasta])
+            ->whereBetween('movimientos_productos_finales.created_at', [$fechaDesde, $fechaHasta])
             ->groupBy(DB::raw('DATE(created_at)'))
             ->orderBy('fecha')
             ->get();

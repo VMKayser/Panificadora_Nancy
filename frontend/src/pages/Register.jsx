@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { auth as authApi } from '../services/api';
 import { toast } from 'react-toastify';
 
 export default function Register() {
@@ -15,6 +16,11 @@ export default function Register() {
     password_confirmation: '',
   });
   const [loading, setLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
 
   const handleChange = (e) => {
     setFormData({
@@ -46,10 +52,13 @@ export default function Register() {
       const result = await register(payload);
       
       if (result.success) {
-        // Si el backend solicita verificación por correo, mostrar mensaje adecuado
+        // Si el backend solicita verificación por correo, mostrar pantalla de 'Revisa tu correo'
         if (result.message) {
+          setVerificationMessage(result.message);
+          // Guardar el email que se usó para el registro para mostrarlo en la UI
+          setRegisteredEmail(payload.email || formData.email || '');
+          setRegistered(true);
           toast.info(result.message);
-          navigate('/login');
         } else {
           toast.success('¡Registro exitoso! Bienvenido');
           navigate('/');
@@ -79,7 +88,33 @@ export default function Register() {
                   <p className="text-muted">Crea tu cuenta</p>
                 </div>
 
-                <form onSubmit={handleSubmit}>
+                {registered ? (
+                  <div className="text-center">
+                    <h5>Revisa tu correo</h5>
+                    <p className="text-muted">{verificationMessage || 'Te hemos enviado un correo con un enlace para verificar tu cuenta.'}</p>
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary mb-2"
+                      onClick={async () => {
+                        try {
+                          setLoading(true);
+                          const resp = await authApi.resendVerification(formData.email);
+                          toast.success(resp.message || 'Correo reenviado');
+                        } catch (e) {
+                          toast.error(e.response?.data?.message || 'Error al reenviar verificación');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                    >
+                      Reenviar correo de verificación
+                    </button>
+                    <div className="mt-3">
+                      <Link to="/login" className="text-muted">Ir a iniciar sesión</Link>
+                    </div>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmit}>
                   {/* Nombre y Apellido (campos separados) */}
                   <div className="row g-2 mb-3">
                     <div className="col">
@@ -152,18 +187,28 @@ export default function Register() {
                     <label htmlFor="password" className="form-label fw-semibold">
                       Contraseña
                     </label>
-                    <input
-                      type="password"
-                      className="form-control"
-                      id="password"
-                      name="password"
-                      value={formData.password}
-                      onChange={handleChange}
-                      required
-                      minLength="6"
-                      placeholder="Mínimo 6 caracteres"
-                      style={{ borderColor: '#8b6f47' }}
-                    />
+                    <div className="input-group">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        className="form-control"
+                        id="password"
+                        name="password"
+                        value={formData.password}
+                        onChange={handleChange}
+                        required
+                        minLength="6"
+                        placeholder="Mínimo 6 caracteres"
+                        style={{ borderColor: '#8b6f47' }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary"
+                        onClick={() => setShowPassword(s => !s)}
+                        aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      >
+                        {showPassword ? 'Ocultar' : 'Mostrar'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Confirm Password */}
@@ -171,18 +216,28 @@ export default function Register() {
                     <label htmlFor="password_confirmation" className="form-label fw-semibold">
                       Confirmar contraseña
                     </label>
-                    <input
-                      type="password"
-                      className="form-control"
-                      id="password_confirmation"
-                      name="password_confirmation"
-                      value={formData.password_confirmation}
-                      onChange={handleChange}
-                      required
-                      minLength="6"
-                      placeholder="Repite tu contraseña"
-                      style={{ borderColor: '#8b6f47' }}
-                    />
+                    <div className="input-group">
+                      <input
+                        type={showPasswordConfirm ? 'text' : 'password'}
+                        className="form-control"
+                        id="password_confirmation"
+                        name="password_confirmation"
+                        value={formData.password_confirmation}
+                        onChange={handleChange}
+                        required
+                        minLength="6"
+                        placeholder="Repite tu contraseña"
+                        style={{ borderColor: '#8b6f47' }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary"
+                        onClick={() => setShowPasswordConfirm(s => !s)}
+                        aria-label={showPasswordConfirm ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                      >
+                        {showPasswordConfirm ? 'Ocultar' : 'Mostrar'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Botón Submit */}
@@ -219,6 +274,7 @@ export default function Register() {
                     </Link>
                   </div>
                 </form>
+                )}
               </div>
             </div>
           </div>

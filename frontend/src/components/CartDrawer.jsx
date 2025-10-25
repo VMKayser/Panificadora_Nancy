@@ -36,9 +36,8 @@ const CartDrawer = ({ show, onHide }) => {
       const ePrice = (e.precio !== undefined) ? parseFloat(e.precio) : parseFloat(e.precio_minorista || 0);
       return s + ((isNaN(ePrice) ? 0 : ePrice) * (e.cantidad || 0));
     }, 0);
-    return ( (isNaN(pPrice) ? 0 : pPrice) * pQty ) + extrasTotal;
-  }
-
+    return (isNaN(pPrice) ? 0 : pPrice) * pQty + extrasTotal;
+  };
   return (
     <Offcanvas show={show} onHide={onHide} placement="end">
       <Offcanvas.Header closeButton style={{ borderBottom: '1px solid #ddd' }}>

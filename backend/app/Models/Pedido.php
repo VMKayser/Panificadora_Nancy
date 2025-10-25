@@ -37,6 +37,8 @@ class Pedido extends Model
         'fecha_entrega',
         'hora_entrega',
         'fecha_pago',
+        'envio_por_pagar',
+        'empresa_transporte',
         'stock_descargado',
     ];
 

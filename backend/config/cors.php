@@ -20,8 +20,13 @@ return [
     // Limitar métodos permitidos en lugar de usar '*'
     'allowed_methods' => ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 
-    // Origen del frontend (configurable vía FRONTEND_URL en .env)
-    'allowed_origins' => [env('FRONTEND_URL', 'http://localhost:5174')],
+    // Orígenes permitidos (configurable vía CORS_ALLOWED_ORIGINS en .env)
+    // Puede ser una lista separada por comas o '*' para permitir todos en desarrollo.
+    'allowed_origins' => function_exists('env') ? (function() {
+        $cfg = env('CORS_ALLOWED_ORIGINS', env('FRONTEND_URL', 'http://localhost:5174'));
+        if ($cfg === '*') return ['*'];
+        return array_map('trim', explode(',', $cfg));
+    })() : [env('FRONTEND_URL', 'http://localhost:5174')],
 
     'allowed_origins_patterns' => [],
 

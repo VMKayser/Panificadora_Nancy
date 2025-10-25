@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Spinner, Alert, Nav } from 'react-bootstrap';
 import { admin, getCategorias } from '../services/api';
 import { toast } from 'react-toastify';
 import ProductoForm from '../components/admin/ProductoForm';
+import useDebounce from '../hooks/useDebounce';
 import PedidosPanel from './admin/PedidosPanel';
 import ClientesPanel from './admin/ClientesPanel';
-import PanaderosPanel from './admin/PanaderosPanel';
-import VendedoresPanel from './admin/VendedoresPanel';
+const PanaderosPanel = React.lazy(() => import('./admin/PanaderosPanel'));
+const VendedoresPanel = React.lazy(() => import('./admin/VendedoresPanel'));
 import EmpleadoPagosPanel from './admin/EmpleadoPagosPanel';
 import InventarioPanel from './admin/InventarioPanel';
 import CategoriasPanel from './admin/CategoriasPanel';
@@ -28,6 +29,9 @@ const AdminPanel = () => {
   const [pagosFilters, setPagosFilters] = useState({});
   const [pagosOpenFor, setPagosOpenFor] = useState(null);
 
+  // debounce searchTerm to avoid firing requests on every keystroke
+  const debouncedSearchTerm = useDebounce(searchTerm, 350);
+
   useEffect(() => {
     // Solo cargar productos cuando la pestaña activa sea 'productos'
     if (activeTab === 'productos') {
@@ -36,14 +40,14 @@ const AdminPanel = () => {
       // No cargar nada si no está en productos (optimización)
       setLoading(false);
     }
-  }, [searchTerm, filtroCategoria, filtroActivo, activeTab]);
+  }, [debouncedSearchTerm, filtroCategoria, filtroActivo, activeTab]);
 
   const cargarDatos = async () => {
     try {
       setLoading(true);
       
       const params = {};
-      if (searchTerm) params.search = searchTerm;
+  if (debouncedSearchTerm) params.search = debouncedSearchTerm;
       if (filtroCategoria) params.categoria_id = filtroCategoria;
       if (filtroActivo !== '') params.activo = filtroActivo;
 
@@ -218,8 +222,16 @@ const AdminPanel = () => {
       {activeTab === 'pedidos' && <PedidosPanel />}
   {activeTab === 'dashboard' && <Dashboard />}
       {activeTab === 'clientes' && <ClientesPanel externalOpenCreate={openClienteSignal} />}
-      {activeTab === 'panaderos' && <PanaderosPanel onOpenPayments={(tipo, id, monto) => { setPagosFilters({ empleado_tipo: tipo, empleado_id: id }); setPagosOpenFor({ empleado_tipo: tipo, empleado_id: id, monto }); setActiveTab('pagos'); }} />}
-      {activeTab === 'vendedores' && <VendedoresPanel onOpenPayments={(tipo, id, monto) => { setPagosFilters({ empleado_tipo: tipo, empleado_id: id }); setPagosOpenFor({ empleado_tipo: tipo, empleado_id: id, monto }); setActiveTab('pagos'); }} />}
+      {activeTab === 'panaderos' && (
+        <Suspense fallback={<div className="d-flex justify-content-center py-4"><div className="spinner-border" role="status"><span className="visually-hidden">Cargando...</span></div></div>}>
+          <PanaderosPanel onOpenPayments={(tipo, id, monto) => { setPagosFilters({ empleado_tipo: tipo, empleado_id: id }); setPagosOpenFor({ empleado_tipo: tipo, empleado_id: id, monto }); setActiveTab('pagos'); }} />
+        </Suspense>
+      )}
+      {activeTab === 'vendedores' && (
+        <Suspense fallback={<div className="d-flex justify-content-center py-4"><div className="spinner-border" role="status"><span className="visually-hidden">Cargando...</span></div></div>}>
+          <VendedoresPanel onOpenPayments={(tipo, id, monto) => { setPagosFilters({ empleado_tipo: tipo, empleado_id: id }); setPagosOpenFor({ empleado_tipo: tipo, empleado_id: id, monto }); setActiveTab('pagos'); }} />
+        </Suspense>
+      )}
       {activeTab === 'pagos' && <EmpleadoPagosPanel initialFilters={pagosFilters} openCreateFor={pagosOpenFor} />}
       {activeTab === 'inventario' && <InventarioPanel />}
       {activeTab === 'categorias' && <CategoriasPanel />}

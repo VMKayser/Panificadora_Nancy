@@ -6,6 +6,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use App\Models\User;
 use App\Observers\UserObserver;
 use App\Models\Producto;
@@ -51,5 +52,18 @@ class AppServiceProvider extends ServiceProvider
             $key = optional($request->user())->id ?: $request->ip();
             return \Illuminate\Cache\RateLimiting\Limit::perMinute(60)->by($key);
         });
+
+        // Force a consistent From address to avoid mail providers rewriting it or treating it as spoofing.
+        // This helps ensure the From header is the site address (configured in .env) even if a notification
+        // or mailer sets a different from. It is safe to call unconditionally.
+        try {
+            $from = config('mail.from.address');
+            $name = config('mail.from.name');
+            if (!empty($from)) {
+                Mail::alwaysFrom($from, $name ?: null);
+            }
+        } catch (\Throwable $e) {
+            // Don't break the application if mail config is not available at boot time.
+        }
     }
 }

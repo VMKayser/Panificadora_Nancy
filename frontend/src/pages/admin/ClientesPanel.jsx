@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import useDebounce from '../../hooks/useDebounce';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
 import {
@@ -32,10 +33,12 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
   const [showRoleChangeModal, setShowRoleChangeModal] = useState(false);
   const [roleChangeData, setRoleChangeData] = useState({ userId: null, newRole: '', userName: '', userEmail: '', extraData: {} });
 
+  const debouncedSearch = useDebounce(searchTerm, 350);
+
   useEffect(() => {
     cargarUsuarios();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, filtroActivo, filtroRol]);
+  }, [debouncedSearch, filtroActivo, filtroRol]);
 
   // Open create modal when parent header button toggles the signal (number > 0)
   useEffect(() => {
@@ -49,7 +52,7 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
     try {
       setLoading(true);
       const params = {};
-      if (searchTerm) params.buscar = searchTerm;
+  if (debouncedSearch) params.buscar = debouncedSearch;
       if (filtroActivo !== '') params.activo = filtroActivo;
       if (filtroRol) params.role = filtroRol;
       const data = await admin.getUsuarios(params);
@@ -132,6 +135,8 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           email: roleChangeData.userEmail,
           ...extraData
         };
+        // Omitir observaciones si está vacío para no forzar campo en backend
+        if (!payload.observaciones) delete payload.observaciones;
         try {
           await admin.crearPanadero(payload);
         } catch (err) {
@@ -151,6 +156,8 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           email: roleChangeData.userEmail,
           ...extraData
         };
+        // Omitir observaciones si está vacío
+        if (!payload.observaciones) delete payload.observaciones;
         try {
           await admin.crearVendedor(payload);
         } catch (err) {

@@ -46,6 +46,10 @@ const ProductCard = ({ producto }) => {
           src={imagen}
           alt={producto.nombre}
           className={styles.cardImg}
+          loading="lazy"
+          decoding="async"
+          srcSet={producto.imagenes && producto.imagenes[0] ? `${producto.imagenes[0].url_imagen || producto.imagenes[0].url_imagen_completa || ''} 300w, ${producto.imagenes[0].url_imagen_completa || producto.imagenes[0].url_imagen || ''} 800w` : undefined}
+          sizes="(max-width: 768px) 45vw, 300px"
         />
         <div className={styles.cardBody}>
           <h5 className={styles.title}>{producto.nombre}</h5>

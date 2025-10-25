@@ -6,6 +6,8 @@ use App\Models\Pedido;
 use App\Models\MovimientoProductoFinal;
 use App\Services\InventarioService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use App\Jobs\SendWhatsAppMessage;
 
 class PedidoObserver
 {
@@ -26,6 +28,8 @@ class PedidoObserver
             } else {
                 Log::info("Omitido descontar inventario en created() para pedido {$pedido->id} (sin detalles aún)");
             }
+        // Invalidate dashboard cache (short-lived cache) to reflect new pedido
+        try { Cache::forget('inventario.dashboard'); } catch (\Exception $e) { Log::warning('No se pudo invalidar cache inventario.dashboard: '.$e->getMessage()); }
         }
     }
 
@@ -46,6 +50,31 @@ class PedidoObserver
                 $service = new InventarioService();
                 $service->descontarInventario($pedido);
             }
+        }
+
+        // Enviar notificación por WhatsApp cuando el pedido pase a 'confirmado' o 'listo'
+        if ($pedido->isDirty('estado')) {
+            $nuevo = $pedido->estado;
+            if (in_array($nuevo, ['confirmado', 'listo'])) {
+                try {
+                    $telefono = $pedido->cliente_telefono ?? $pedido->cliente->telefono ?? null;
+                    if ($telefono) {
+                        // Construir mensaje sencillo: nombre + número de pedido + estado
+                        $clienteNombre = $pedido->cliente_nombre ?? ($pedido->cliente->nombre ?? 'Cliente');
+                        $numero = $pedido->numero_pedido ?? $pedido->id;
+                        $estadoText = $nuevo === 'confirmado' ? '✅ Confirmado' : '✨ Listo';
+                        $msg = "Hola {$clienteNombre}, tu pedido #{$numero} está {$estadoText}.";
+                        SendWhatsAppMessage::dispatch($telefono, $msg);
+                        Log::info("WhatsApp job dispatch para pedido {$pedido->id} a {$telefono}");
+                    } else {
+                        Log::warning("PedidoObserver: no se encontró teléfono para pedido {$pedido->id}, no se envía WhatsApp");
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Error dispatching WhatsApp job: ' . $e->getMessage());
+                }
+            }
+            // Invalidate dashboard cache after state change
+            try { Cache::forget('inventario.dashboard'); } catch (\Exception $e) { Log::warning('No se pudo invalidar cache inventario.dashboard: '.$e->getMessage()); }
         }
     }
 

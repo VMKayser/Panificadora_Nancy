@@ -6,6 +6,8 @@ import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { Home, ShoppingCart, Phone, Info, DollarSign, Settings, User, Edit, Package as PackageIcon, LogOut, LogIn } from 'lucide-react';
 import CartDrawer from './CartDrawer';
+import UserDropdown from './UserDropdown';
+import { useSiteConfig } from '../context/SiteConfigContext';
 
 const Header = () => {
   const { getTotalItems } = useCart();
@@ -13,6 +15,7 @@ const Header = () => {
   const navigate = useNavigate();
   const cartItemsCount = getTotalItems();
   const [showCart, setShowCart] = useState(false);
+  const { logoUrl } = useSiteConfig();
 
   const handleOpenCart = (e) => {
     e.preventDefault();
@@ -27,12 +30,12 @@ const Header = () => {
   };
 
   return (
-    <Navbar bg="light" expand="lg" sticky="top" className="shadow-sm">
+  <Navbar bg="light" expand="lg" sticky="top" className="shadow-sm" collapseOnSelect>
       <Container>
-        {/* Logo: usar archivo local en public/images/logo.jpg */}
+        {/* Logo: usar logo configurado si existe, fallback a public/images/logo.jpg */}
         <Navbar.Brand as={Link} to="/" className="d-flex align-items-center">
           <img
-            src={`${import.meta.env.BASE_URL}images/logo.jpg`}
+            src={logoUrl || `${import.meta.env.BASE_URL}images/logo.jpg`}
             className="site-logo d-inline-block align-top"
             alt="Panificadora Nancy"
           />
@@ -42,11 +45,27 @@ const Header = () => {
         </Navbar.Brand>
 
         {/* Toggle para móvil */}
-        <Navbar.Toggle aria-controls="navbar-nav" />
+  <Navbar.Toggle aria-controls="navbar-nav" aria-label="Toggle navigation" />
+
+        {/* Cart button visible on mobile outside the collapse (next to the toggle) */}
+        <div className="d-flex d-md-none align-items-center ms-2">
+          <a href="#" onClick={handleOpenCart} className="position-relative" style={{ color: 'inherit', textDecoration: 'none' }}>
+            <span style={{ fontSize: 20 }}>🛒</span>
+            {cartItemsCount > 0 && (
+              <Badge
+                bg="danger"
+                pill
+                className="position-absolute top-0 start-100 translate-middle"
+              >
+                {cartItemsCount}
+              </Badge>
+            )}
+          </a>
+        </div>
 
         <Navbar.Collapse id="navbar-nav">
           {/* Links de navegación */}
-          <Nav className="ms-auto align-items-center">
+          <Nav className="ms-auto align-items-center flex-nowrap" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
             <Nav.Link as={Link} to="/" className="mx-2">
               🏠 Inicio
             </Nav.Link>
@@ -60,10 +79,9 @@ const Header = () => {
               ℹ️ Nosotros
             </Nav.Link>
             
-            {/* Carrito con badge - siempre visible en móvil (d-flex en sm) */}
-            <Nav.Link href="#" onClick={handleOpenCart} className="mx-2 position-relative d-flex align-items-center">
-              <span className="d-md-none">🛒</span>
-              <span className="d-none d-md-inline">🛒 Carrito</span>
+            {/* Carrito (oculto en móvil porque lo mostramos fuera del collapse al lado del toggle) */}
+            <Nav.Link href="#" onClick={handleOpenCart} className="mx-2 position-relative d-none d-md-flex align-items-center">
+              <span className="">🛒 Carrito</span>
               {cartItemsCount > 0 && (
                 <Badge 
                   bg="danger" 
@@ -101,18 +119,12 @@ const Header = () => {
 
             {/* Usuario autenticado o Login */}
             {user ? (
-              <NavDropdown title={`👤 ${user.name}`} id="user-dropdown" className="mx-2">
-                <NavDropdown.Item as={Link} to="/perfil">
-                  ✏️ Mi Perfil
-                </NavDropdown.Item>
-                <NavDropdown.Item as={Link} to="/mis-pedidos">
-                  📦 Mis Pedidos
-                </NavDropdown.Item>
-                <NavDropdown.Divider />
-                <NavDropdown.Item onClick={handleLogout}>
-                  🚪 Cerrar Sesión
-                </NavDropdown.Item>
-              </NavDropdown>
+              // Render dropdown via Overlay appended to document.body to avoid
+              // parent overflow creating static dropdowns that push layout.
+              <>
+                {/* lazy-load UserDropdown to keep Header lightweight */}
+                <UserDropdown user={user} onLogout={handleLogout} />
+              </>
             ) : (
               <>
                 <Nav.Link as={Link} to="/login" className="mx-2">

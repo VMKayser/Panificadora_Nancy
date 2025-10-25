@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Form, Row, Col, Button, Image, Alert, Badge } from 'react-bootstrap';
-import { admin } from '../../services/api';
+import { admin, assetBase } from '../../services/api';
 import { toast } from 'react-toastify';
 import PropTypes from 'prop-types';
 
@@ -64,8 +64,8 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
         const urls = producto.imagenes.map(img => {
           // Priorizar url_imagen_completa, luego url_imagen
           const url = img.url_imagen_completa || img.url_imagen;
-          // Si la URL no comienza con http, agregar el prefijo del backend
-          return url.startsWith('http') ? url : `http://localhost${url}`;
+          // Si la URL no comienza con http, agregar el prefijo del backend (assetBase())
+          return url.startsWith('http') ? url : `${assetBase()}${url}`;
         });
         setImagenes(urls);
         setImagenesPreview(urls);
@@ -546,6 +546,8 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
                     <Image 
                       src={url} 
                       rounded 
+                      loading="lazy"
+                      decoding="async"
                       style={{ width: '100%', height: '150px', objectFit: 'cover' }}
                       onError={(e) => {
                         e.target.onerror = null;

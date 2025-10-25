@@ -24,6 +24,74 @@ Route::middleware('throttle:5,1')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
 });
 
+// Email verification routes (signed URL + resend)
+use Illuminate\Http\Request as HttpRequest;
+
+// Public verification endpoint that works without the user being authenticated (API clients may open
+// the verification link in a browser where the user isn't logged in). The framework's
+// EmailVerificationRequest expects an authenticated user, so we perform manual verification here:
+use Illuminate\Auth\Events\Verified;
+
+Route::get('/email/verify/{id}/{hash}', function (Request $request, $id, $hash) {
+    // Validate signature (signed middleware already runs, but double-checking here gives clearer JSON errors)
+    if (!$request->hasValidSignature()) {
+        return response()->json(['message' => 'Enlace inválido o expirado'], 403);
+    }
+
+    $user = \App\Models\User::find($id);
+    if (!$user) {
+        return response()->json(['message' => 'Usuario no encontrado'], 404);
+    }
+
+    // Ensure the hash matches the user's email (same check Laravel does internally)
+    if (!hash_equals(sha1($user->getEmailForVerification()), (string) $hash)) {
+        return response()->json(['message' => 'Hash de verificación inválido'], 403);
+    }
+
+    if ($user->hasVerifiedEmail()) {
+        return response()->json(['message' => 'Correo ya verificado'], 200);
+    }
+
+    $user->markEmailAsVerified();
+    event(new Verified($user));
+
+    // If the request expects JSON (API client), return JSON. Otherwise redirect to the
+    // frontend application so the user sees a friendly UI. We include the email so the
+    // frontend can show it if desired (e.g. "Tu correo x@... ha sido verificado").
+    if ($request->wantsJson() || str_contains($request->header('accept', ''), 'application/json')) {
+        return response()->json(['message' => 'Email verificado'], 200);
+    }
+
+    $appUrl = rtrim(config('app.url') ?? env('APP_URL', ''), '/');
+    $redirectTo = $appUrl . '/login?verified=1&email=' . urlencode($user->email);
+    return redirect()->away($redirectTo);
+})->middleware('signed')->name('verification.verify');
+
+Route::post('/email/resend', function (HttpRequest $request) {
+    // Allow either authenticated user or public request with email in body.
+    $email = $request->input('email');
+    $user = $request->user();
+    if (!$user && !$email) {
+        return response()->json(['message' => 'Se requiere autenticación o email'], 400);
+    }
+
+    if (!$user) {
+        $user = \App\Models\User::where('email', $email)->first();
+        if (!$user) {
+            // Do not reveal existence of emails in production; reply generically
+            return response()->json(['message' => 'Si el correo existe, se ha reenviado la verificación'], 202);
+        }
+    }
+
+    if ($user->hasVerifiedEmail()) {
+        return response()->json(['message' => 'Ya verificado'], 200);
+    }
+
+    // Send verification (queued if queue is configured)
+    $user->sendEmailVerificationNotification();
+    return response()->json(['message' => 'Si el correo existe, se ha reenviado la verificación'], 202);
+})->middleware('throttle:6,1');
+
 // Rutas protegidas de autenticación (throttle: 60 requests por minuto)
 Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -39,6 +107,12 @@ Route::get('/user', function (Request $request) {
 // Rutas públicas
 Route::get('/productos', [ProductoController::class, 'index']);
 Route::get('/productos/{id}', [ProductoController::class, 'show']);
+
+// Rutas públicas para configuraciones no sensibles (logo, QR, whatsapp, nombre)
+Route::get('/configuraciones/public/{clave}/valor', [\App\Http\Controllers\ConfiguracionPublicController::class, 'getValor']);
+
+// Healthcheck endpoint (public) - simple DB + cache sanity check
+Route::get('/health', [\App\Http\Controllers\SystemHealthController::class, 'index']);
 
 
 // Rutas de pedidos
@@ -72,8 +146,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,vendedor'])->gro
     
     // Estadísticas de productos
     Route::get('/stats', [AdminProductoController::class, 'stats']);
-    // Dashboard snapshot endpoint (cached)
-    Route::get('/dashboard-stats', [\App\Http\Controllers\Api\AdminStatsController::class, 'index']);
+    // Dashboard snapshot endpoint (cached) - admin only
+    Route::get('/dashboard-stats', [\App\Http\Controllers\Api\AdminStatsController::class, 'index'])
+        ->middleware('role:admin');
     
     // Gestión de pedidos
     Route::get('/pedidos', [AdminPedidoController::class, 'index']);
@@ -141,6 +216,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,vendedor'])->gro
         Route::post('/inicializar-defecto', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'inicializarDefecto']);
         Route::get('/{clave}/valor', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'getValor']);
     });
+    // Admin utility: clear dashboard cache
+    Route::post('/cache/dashboard/clear', [\App\Http\Controllers\Admin\AdminDashboardController::class, 'clearCache']);
+    // WhatsApp admin endpoints: listar y reintentar mensajes
+    Route::prefix('whatsapp')->group(function () {
+        Route::get('/messages', [\App\Http\Controllers\Admin\WhatsAppController::class, 'index']);
+        Route::post('/messages/{id}/retry', [\App\Http\Controllers\Admin\WhatsAppController::class, 'retry']);
+    });
         // empleado payments
         Route::get('empleado-pagos', [EmpleadoPagoController::class, 'index']);
         Route::post('empleado-pagos', [EmpleadoPagoController::class, 'store']);
@@ -198,7 +280,8 @@ Route::prefix('inventario')->middleware(['auth:sanctum'])->group(function () {
     });
 
     // ===== INVENTARIO PRODUCTOS FINALES =====
-    Route::get('/dashboard', [InventarioController::class, 'dashboard']); // Dashboard general
+    // Dashboard general - devuelve métricas usadas por el frontend (pedidos_hoy, ingresos_hoy, etc.)
+    Route::get('/dashboard', [\App\Http\Controllers\Api\InventarioDashboardController::class, 'index']); // Dashboard general
     Route::get('/productos-finales', [InventarioController::class, 'productosFinales']); // Stock productos
     Route::get('/movimientos-productos', [InventarioController::class, 'movimientosProductos']); // Movimientos
     Route::post('/productos/{productoId}/ajustar', [InventarioController::class, 'ajustarInventarioProducto']); // Ajuste
@@ -206,6 +289,9 @@ Route::prefix('inventario')->middleware(['auth:sanctum'])->group(function () {
     Route::get('/reporte-mermas', [InventarioController::class, 'reporteMermas']); // Mermas
     Route::get('/kardex/{productoId}', [InventarioController::class, 'kardex']); // Kardex
     Route::post('/productos/{productoId}/stock-minimo', [InventarioController::class, 'configurarStockMinimo']); // Config
+    // Movimientos de caja (ingresos / salidas)
+    Route::get('/movimientos-caja', [\App\Http\Controllers\Api\MovimientoCajaController::class, 'index']);
+    Route::post('/movimientos-caja', [\App\Http\Controllers\Api\MovimientoCajaController::class, 'store']);
 });
 
 // ============================================

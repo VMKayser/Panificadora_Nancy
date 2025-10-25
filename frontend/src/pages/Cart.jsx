@@ -86,9 +86,13 @@ const Cart = () => {
                           ? (parent.imagenes[0].url_imagen_completa || parent.imagenes[0].url_imagen)
                           : 'https://picsum.photos/100/100'
                       }
+                      srcSet={parent.imagenes && parent.imagenes.length > 0 ? `${parent.imagenes[0].url_imagen || parent.imagenes[0].url_imagen_completa || ''} 300w, ${parent.imagenes[0].url_imagen_completa || parent.imagenes[0].url_imagen || ''} 800w` : undefined}
+                      sizes="(max-width: 600px) 40vw, 100px"
                       alt={parent.nombre}
                       rounded
                       fluid
+                      loading="lazy"
+                      decoding="async"
                     />
                   </Col>
                   

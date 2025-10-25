@@ -5,30 +5,8 @@ import { admin } from '../../services/api';
 export default function PanaderosPanel() {
   const [panaderos, setPanaderos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editingPanadero, setEditingPanadero] = useState(null);
-  const [form, setForm] = useState({
-    nombre: '',
-    apellido: '',
-    email: '',
-    telefono: '',
-    ci: '',
-    direccion: '',
-    fecha_ingreso: '',
-    turno: '',
-    especialidad: '',
-    salario_base: '',
-    salario_por_kilo: '',
-    activo: true,
-    observaciones: ''
-  });
-  const [filtros, setFiltros] = useState({
-    periodo: 'mes', // día, semana, mes
-    turno: '',
-    especialidad: '',
-    activo: ''
-  });
   const [estadisticas, setEstadisticas] = useState(null);
+  const [filtros, setFiltros] = useState({});
   const [showPagoModal, setShowPagoModal] = useState(false);
   const [pagarPanadero, setPagarPanadero] = useState(null);
   const [pagoForm, setPagoForm] = useState({ monto: '', kilos_pagados: '' , notas: '' , metodos_pago_id: '', tipo_pago: 'produccion' });
@@ -56,36 +34,24 @@ export default function PanaderosPanel() {
     }
   };
 
-  useEffect(() => {
-    cargar();
-  }, [filtros]);
+  useEffect(() => { cargar(); }, []);
 
-  const handleEditar = async (p) => {
-    // Open modal and populate form for editing
-    setEditingPanadero(p);
-    // Prefer values from linked user when available (newer schema stores name/phone/ci on users)
-    const user = p.user || {};
-    const fullName = user.name || `${p.nombre || ''} ${p.apellido || ''}`.trim();
-    const nameParts = fullName ? fullName.split(' ') : [];
-    const nombrePrefill = nameParts.length ? nameParts[0] : '';
-    const apellidoPrefill = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+  // Minimal handlers / placeholders (panel intentionally simplified)
+  const handleEditar = (p) => {
+    // Edit UI was removed from this simplified panel; redirect or open modal if needed later
+    console.info('Editar panadero (no implementado):', p?.id);
+  };
 
-    setForm({
-      nombre: nombrePrefill || '',
-      apellido: apellidoPrefill || '',
-      email: user.email || p.email || '',
-      telefono: user.phone || p.telefono || '',
-      ci: user.ci || p.ci || '',
-      direccion: p.direccion || '',
-      fecha_ingreso: p.fecha_ingreso ? p.fecha_ingreso.split('T')[0] : '',
-      turno: p.turno || '',
-      especialidad: p.especialidad || '',
-      salario_base: p.salario_base || '',
-      salario_por_kilo: p.salario_por_kilo || '',
-      activo: !!p.activo,
-      observaciones: p.observaciones || ''
-    });
-    setShowModal(true);
+  const handleEliminar = async (p) => {
+    // Basic confirm + API call placeholder
+    try {
+      if (!confirm(`Eliminar panadero ${p?.user?.name || p?.nombre || p?.id}?`)) return;
+      await admin.eliminarPanadero(p.id);
+      cargar();
+    } catch (err) {
+      console.error('Error eliminando panadero:', err);
+      alert(err?.response?.data?.message || 'Error eliminando panadero');
+    }
   };
 
   const handleToggleActivo = async (p) => {
@@ -95,17 +61,6 @@ export default function PanaderosPanel() {
     } catch (err) {
       console.error(err);
       alert('Error al cambiar estado');
-    }
-  };
-
-  const handleEliminar = async (p) => {
-    if (!window.confirm(`¿Eliminar panadero ${p.user?.name || p.nombre || p.id}?`)) return;
-    try {
-      await admin.eliminarPanadero(p.id);
-      cargar();
-    } catch (err) {
-      console.error(err);
-      alert('Error al eliminar');
     }
   };
 
@@ -160,53 +115,7 @@ export default function PanaderosPanel() {
     }
   };
 
-  const handleFiltroChange = (campo, valor) => {
-    setFiltros(prev => ({ ...prev, [campo]: valor }));
-  };
-
-  const handleNuevo = () => {
-    setEditingPanadero(null);
-    setForm({
-      nombre: '',
-      apellido: '',
-      email: '',
-      telefono: '',
-      ci: '',
-      direccion: '',
-      fecha_ingreso: '',
-      turno: '',
-      especialidad: '',
-      salario_base: '',
-      salario_por_kilo: '',
-      activo: true,
-      observaciones: ''
-    });
-    setShowModal(true);
-  };
-
-  const handleFormChange = (field, value) => {
-    setForm(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      if (editingPanadero) {
-        await admin.actualizarPanadero(editingPanadero.id, form);
-      } else {
-        await admin.crearPanadero(form);
-      }
-      setShowModal(false);
-      cargar();
-    } catch (err) {
-      console.error('Error guardando panadero:', err);
-      alert(err.response?.data?.message || 'Error guardando panadero');
-    }
-  };
-
-  const handleCloseModal = () => {
-    setShowModal(false);
-  };
+  const handleCloseModal = () => { /* noop - create/edit removed in simplified panel */ };
 
   if (loading) return <div className="text-center py-4"><Spinner animation="border" /></div>;
 
@@ -249,66 +158,7 @@ export default function PanaderosPanel() {
           </Col>
         </Row>
       )}
-      {/* Botón de crear panadero removido: ahora se crean desde ClientesPanel cambiando rol */}
-      
-      {/* Filtros */}
-      <Row className="mb-3">
-        <Col md={3}>
-          <Form.Group>
-            <Form.Label>Período</Form.Label>
-            <Form.Select 
-              value={filtros.periodo} 
-              onChange={(e) => handleFiltroChange('periodo', e.target.value)}
-            >
-              <option value="dia">Hoy</option>
-              <option value="semana">Esta Semana</option>
-              <option value="mes">Este Mes</option>
-            </Form.Select>
-          </Form.Group>
-        </Col>
-        <Col md={3}>
-          <Form.Group>
-            <Form.Label>Turno</Form.Label>
-            <Form.Select 
-              value={filtros.turno} 
-              onChange={(e) => handleFiltroChange('turno', e.target.value)}
-            >
-              <option value="">Todos</option>
-              <option value="mañana">Mañana</option>
-              <option value="tarde">Tarde</option>
-              <option value="noche">Noche</option>
-              <option value="rotativo">Rotativo</option>
-            </Form.Select>
-          </Form.Group>
-        </Col>
-        <Col md={3}>
-          <Form.Group>
-            <Form.Label>Especialidad</Form.Label>
-            <Form.Select 
-              value={filtros.especialidad} 
-              onChange={(e) => handleFiltroChange('especialidad', e.target.value)}
-            >
-              <option value="">Todas</option>
-              <option value="pan">Pan</option>
-              <option value="reposteria">Repostería</option>
-              <option value="ambos">Ambos</option>
-            </Form.Select>
-          </Form.Group>
-        </Col>
-        <Col md={3}>
-          <Form.Group>
-            <Form.Label>Estado</Form.Label>
-            <Form.Select 
-              value={filtros.activo} 
-              onChange={(e) => handleFiltroChange('activo', e.target.value)}
-            >
-              <option value="">Todos</option>
-              <option value="1">Activos</option>
-              <option value="0">Inactivos</option>
-            </Form.Select>
-          </Form.Group>
-        </Col>
-      </Row>
+      {/* Simplified panel: filters and create/edit removed for clarity */}
 
       {panaderos.length === 0 ? (
         <Alert variant="info">No hay panaderos registrados.</Alert>
@@ -373,120 +223,7 @@ export default function PanaderosPanel() {
         </Table>
       )}
 
-      {/* Modal Crear / Editar */}
-      <Modal show={showModal} onHide={handleCloseModal} size="lg">
-        <Form onSubmit={handleSubmit}>
-          <Modal.Header closeButton>
-            <Modal.Title>{editingPanadero ? 'Editar Panadero' : 'Nuevo Panadero'}</Modal.Title>
-          </Modal.Header>
-          <Modal.Body>
-            <Row>
-              <Col md={6}>
-                <Form.Group className="mb-2">
-                  <Form.Label>Nombre</Form.Label>
-                  <Form.Control value={form.nombre} onChange={e => handleFormChange('nombre', e.target.value)} required />
-                </Form.Group>
-              </Col>
-              <Col md={6}>
-                <Form.Group className="mb-2">
-                  <Form.Label>Apellido</Form.Label>
-                  <Form.Control value={form.apellido} onChange={e => handleFormChange('apellido', e.target.value)} />
-                </Form.Group>
-              </Col>
-            </Row>
-
-            <Row>
-              <Col md={6}>
-                <Form.Group className="mb-2">
-                  <Form.Label>Email</Form.Label>
-                  <Form.Control type="email" value={form.email} onChange={e => handleFormChange('email', e.target.value)} />
-                </Form.Group>
-              </Col>
-              <Col md={6}>
-                <Form.Group className="mb-2">
-                  <Form.Label>Teléfono</Form.Label>
-                  <Form.Control value={form.telefono} onChange={e => handleFormChange('telefono', e.target.value)} />
-                </Form.Group>
-              </Col>
-            </Row>
-
-            <Row>
-              <Col md={4}>
-                <Form.Group className="mb-2">
-                  <Form.Label>CI</Form.Label>
-                  <Form.Control value={form.ci} onChange={e => handleFormChange('ci', e.target.value)} />
-                </Form.Group>
-              </Col>
-              <Col md={4}>
-                <Form.Group className="mb-2">
-                  <Form.Label>Fecha Ingreso</Form.Label>
-                  <Form.Control type="date" value={form.fecha_ingreso} onChange={e => handleFormChange('fecha_ingreso', e.target.value)} />
-                </Form.Group>
-              </Col>
-              <Col md={4}>
-                <Form.Group className="mb-2">
-                  <Form.Label>Turno</Form.Label>
-                  <Form.Select value={form.turno} onChange={e => handleFormChange('turno', e.target.value)}>
-                    <option value="">Seleccione</option>
-                    <option value="mañana">Mañana</option>
-                    <option value="tarde">Tarde</option>
-                    <option value="noche">Noche</option>
-                    <option value="rotativo">Rotativo</option>
-                  </Form.Select>
-                </Form.Group>
-              </Col>
-            </Row>
-
-            <Row>
-              <Col md={6}>
-                <Form.Group className="mb-2">
-                  <Form.Label>Especialidad</Form.Label>
-                  <Form.Select value={form.especialidad} onChange={e => handleFormChange('especialidad', e.target.value)}>
-                    <option value="">Seleccione</option>
-                    <option value="pan">Pan</option>
-                    <option value="reposteria">Repostería</option>
-                    <option value="ambos">Ambos</option>
-                  </Form.Select>
-                </Form.Group>
-              </Col>
-              <Col md={6}>
-                <Form.Group className="mb-2">
-                  <Form.Label>Salario Base (Bs)</Form.Label>
-                  <Form.Control type="number" step="0.01" value={form.salario_base} onChange={e => handleFormChange('salario_base', e.target.value)} />
-                </Form.Group>
-              </Col>
-            </Row>
-
-            <Row>
-              <Col md={6}>
-                <Form.Group className="mb-2">
-                  <Form.Label>Salario por kilo (Bs/kg)</Form.Label>
-                  <Form.Control type="number" step="0.01" value={form.salario_por_kilo} onChange={e => handleFormChange('salario_por_kilo', e.target.value)} />
-                </Form.Group>
-              </Col>
-              <Col md={6} />
-            </Row>
-
-            <Form.Group className="mb-2">
-              <Form.Label>Dirección</Form.Label>
-              <Form.Control value={form.direccion} onChange={e => handleFormChange('direccion', e.target.value)} />
-            </Form.Group>
-
-            <Form.Group className="mb-2">
-              <Form.Label>Observaciones</Form.Label>
-              <Form.Control as="textarea" rows={3} value={form.observaciones} onChange={e => handleFormChange('observaciones', e.target.value)} />
-            </Form.Group>
-
-            <Form.Group className="mb-2">
-              <Form.Check type="checkbox" label="Activo" checked={!!form.activo} onChange={e => handleFormChange('activo', e.target.checked)} />
-            </Form.Group>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="secondary" onClick={handleCloseModal}>Cancelar</Button>
-            <Button variant="primary" type="submit" style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}>{editingPanadero ? 'Actualizar' : 'Crear'}</Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
+      {/* Create/Edit removed: manage panaderos from ClientesPanel. */}
 
       {/* Modal de Pago */}
       <Modal show={showPagoModal} onHide={handleClosePagoModal}>
