@@ -57,7 +57,33 @@ return new class extends Migration
             if (in_array('ci', $cols)) $toDrop[] = 'ci';
 
             if (!empty($toDrop)) {
-                Schema::table('panaderos', function (Blueprint $table) use ($toDrop) {
+                Schema::table('panaderos', function (Blueprint $table) use ($toDrop, $cols) {
+                    // Drop indexes before dropping columns to avoid SQLite errors
+                    if (in_array('ci', $cols)) {
+                        try {
+                            $table->dropUnique('panaderos_ci_unique');
+                        } catch (\Throwable $e) {
+                            try {
+                                DB::statement('DROP INDEX IF EXISTS panaderos_ci_unique');
+                            } catch (\Throwable $e2) {
+                                // ignore
+                            }
+                        }
+                    }
+                    
+                    // Drop telefono index if exists (some schemas may have it)
+                    if (in_array('telefono', $cols)) {
+                        try {
+                            $table->dropUnique('panaderos_telefono_unique');
+                        } catch (\Throwable $e) {
+                            try {
+                                DB::statement('DROP INDEX IF EXISTS panaderos_telefono_unique');
+                            } catch (\Throwable $e2) {
+                                // ignore
+                            }
+                        }
+                    }
+
                     foreach ($toDrop as $col) {
                         if (Schema::hasColumn('panaderos', $col)) {
                             $table->dropColumn($col);
