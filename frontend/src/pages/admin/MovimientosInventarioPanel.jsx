@@ -94,10 +94,47 @@ export default function MovimientosInventarioPanel() {
       unidad: 'unidades'
       // cantidad_producida y harina_real_usada eliminados
     });
+    setProduccionExtras([]);
     setIsSubmitting(false);
     setProduccionErrorDetails([]);
     setProduccionErrorMessage('');
     setShowModal(true);
+  };
+
+  const autocompletarIngredientes = async () => {
+    if (!selectedItem?.producto_id && !selectedItem?.producto?.id) {
+      toast.warning('No se puede cargar la receta: producto no identificado');
+      return;
+    }
+    
+    const cantidad = parseFloat(formData.cantidad);
+    if (!cantidad || cantidad <= 0) {
+      toast.warning('Primero ingrese la cantidad a producir');
+      return;
+    }
+
+    try {
+      const productoId = selectedItem.producto_id || selectedItem.producto?.id;
+      const response = await admin.getProducto(productoId);
+      const producto = response.data || response;
+      
+      if (!producto.receta || !producto.receta.ingredientes || producto.receta.ingredientes.length === 0) {
+        toast.info('Este producto no tiene receta configurada');
+        return;
+      }
+
+      // Calcular ingredientes basados en la cantidad
+      const ingredientesCalculados = producto.receta.ingredientes.map(ing => ({
+        materia_prima_id: ing.materia_prima_id,
+        cantidad: (parseFloat(ing.cantidad_necesaria) * cantidad).toFixed(2)
+      }));
+
+      setProduccionExtras(ingredientesCalculados);
+      toast.success('Ingredientes cargados desde la receta');
+    } catch (error) {
+      console.error('Error cargando receta:', error);
+      toast.error('Error al cargar la receta del producto');
+    }
   };
 
   const handleCloseModal = () => {
@@ -423,7 +460,7 @@ export default function MovimientosInventarioPanel() {
       </Tabs>
 
       {/* Modal para registrar entrada/salida */}
-      <Modal show={showModal} onHide={handleCloseModal}>
+      <Modal show={showModal} onHide={handleCloseModal} size="lg">
         <Modal.Header closeButton>
           <Modal.Title>
             {tipoMovimiento === 'entrada' ? '➕ Registrar Entrada' : '➖ Registrar Salida'}
@@ -571,27 +608,51 @@ export default function MovimientosInventarioPanel() {
 
                     {/* Extra ingredientes UI for single production */}
                     <Card className="mb-2 p-2 border-info">
-                      <div className="mb-2 text-muted small">Ingredientes adicionales (opcional). Se descontarán del inventario junto a los de la receta. La harina sigue siendo la que determina el salario.</div>
-                      {produccionExtras.map((ing, idx) => (
-                        <Row key={idx} className="align-items-center mb-2">
-                          <Col md={6} className="mb-2">
-                            <Form.Select value={ing.materia_prima_id || ''} onChange={(e) => {
-                              const clone = [...produccionExtras]; clone[idx].materia_prima_id = e.target.value; setProduccionExtras(clone);
-                            }}>
-                              <option value="">Seleccione materia prima...</option>
-                              {materiasPrimas.map(mp => (
-                                <option key={mp.id} value={mp.id}>{mp.nombre}</option>
-                              ))}
-                            </Form.Select>
-                          </Col>
-                          <Col md={4} className="mb-2">
-                            <Form.Control type="number" step="0.01" value={ing.cantidad || ''} onChange={(e) => { const clone = [...produccionExtras]; clone[idx].cantidad = e.target.value; setProduccionExtras(clone); }} placeholder="Cantidad" />
-                          </Col>
-                          <Col md={2} className="text-end">
-                            <Button size="sm" variant="outline-danger" onClick={() => { setProduccionExtras(produccionExtras.filter((_, i) => i !== idx)); }}>Eliminar</Button>
-                          </Col>
-                        </Row>
-                      ))}
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <div className="text-muted small">Ingredientes adicionales (opcional). Se descontarán del inventario junto a los de la receta.</div>
+                        <Button 
+                          size="sm" 
+                          variant="outline-success" 
+                          onClick={autocompletarIngredientes}
+                          disabled={!formData.cantidad}
+                        >
+                          🪄 Usar receta
+                        </Button>
+                      </div>
+                      {produccionExtras.map((ing, idx) => {
+                        const materiaPrimaSeleccionada = materiasPrimas.find(mp => mp.id === parseInt(ing.materia_prima_id));
+                        return (
+                          <Row key={idx} className="align-items-center mb-2">
+                            <Col md={5} className="mb-2">
+                              <Form.Select value={ing.materia_prima_id || ''} onChange={(e) => {
+                                const clone = [...produccionExtras]; clone[idx].materia_prima_id = e.target.value; setProduccionExtras(clone);
+                              }}>
+                                <option value="">Seleccione materia prima...</option>
+                                {materiasPrimas.map(mp => (
+                                  <option key={mp.id} value={mp.id}>{mp.nombre}</option>
+                                ))}
+                              </Form.Select>
+                            </Col>
+                            <Col md={3} className="mb-2">
+                              <Form.Control 
+                                type="number" 
+                                step="0.01" 
+                                value={ing.cantidad || ''} 
+                                onChange={(e) => { const clone = [...produccionExtras]; clone[idx].cantidad = e.target.value; setProduccionExtras(clone); }} 
+                                placeholder="Cantidad" 
+                              />
+                            </Col>
+                            <Col md={2} className="mb-2">
+                              <Form.Text className="text-muted">
+                                {materiaPrimaSeleccionada ? materiaPrimaSeleccionada.unidad_medida : '-'}
+                              </Form.Text>
+                            </Col>
+                            <Col md={2} className="text-end">
+                              <Button size="sm" variant="outline-danger" onClick={() => { setProduccionExtras(produccionExtras.filter((_, i) => i !== idx)); }}>×</Button>
+                            </Col>
+                          </Row>
+                        );
+                      })}
                       <Button size="sm" variant="outline-primary" onClick={() => setProduccionExtras([...produccionExtras, { materia_prima_id: '', cantidad: '' }])}>
                         <i className="bi bi-plus"></i> Añadir ingrediente
                       </Button>

@@ -55,10 +55,11 @@ class ProduccionController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'producto_id' => 'required|exists:productos,id',
+            'panadero_id' => 'nullable|exists:panaderos,id',
             'fecha_produccion' => 'required|date',
             'hora_inicio' => 'nullable|date_format:H:i',
             'hora_fin' => 'nullable|date_format:H:i|after:hora_inicio',
-            'harina_real_usada' => 'required|numeric|min:0.001',
+            'harina_real_usada' => 'nullable|numeric|min:0',
             'cantidad_producida' => 'required|numeric|min:0.001',
             'unidad' => 'required|in:unidades,kg,docenas',
             'observaciones' => 'nullable|string',
@@ -110,12 +111,13 @@ class ProduccionController extends Controller
                     'producto_id' => $request->producto_id,
                     'receta_id' => $receta->id,
                     'user_id' => Auth::id(),
+                    'panadero_id' => $request->panadero_id,
                     'fecha_produccion' => $request->fecha_produccion,
                     'hora_inicio' => $request->hora_inicio,
                     'hora_fin' => $request->hora_fin,
                     'cantidad_producida' => $request->cantidad_producida,
                     'unidad' => $request->unidad,
-                    'harina_real_usada' => $request->harina_real_usada,
+                    'harina_real_usada' => $request->harina_real_usada ?? 0,
                     'estado' => 'en_proceso',
                     'observaciones' => $request->observaciones
                 ]);
