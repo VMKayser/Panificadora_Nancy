@@ -134,7 +134,7 @@ export default function ProduccionForm() {
           <Col md={4}>
             <Form.Group className="mb-2">
               <Form.Label>Cantidad producida</Form.Label>
-              <Form.Control type="number" step="0.001" name="cantidad_producida" value={form.cantidad_producida} onChange={handleChange} />
+              <Form.Control type="number" step="0.01" name="cantidad_producida" value={form.cantidad_producida} onChange={handleChange} />
             </Form.Group>
           </Col>
 
@@ -150,7 +150,7 @@ export default function ProduccionForm() {
           <Col md={4}>
             <Form.Group className="mb-2">
               <Form.Label>Harina real usada (kg)</Form.Label>
-              <Form.Control type="number" step="0.001" name="harina_real_usada" value={form.harina_real_usada} onChange={handleChange} />
+              <Form.Control type="number" step="0.01" name="harina_real_usada" value={form.harina_real_usada} onChange={handleChange} />
             </Form.Group>
           </Col>
         </Row>
