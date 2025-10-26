@@ -24,15 +24,31 @@ return new class extends Migration
 
         // Copy data from panaderos to users when linked by user_id
         if (Schema::hasTable('panaderos') && Schema::hasColumn('panaderos', 'user_id')) {
-            // Use a join update to copy telefono/ci when users values are null
-            DB::statement(<<<'SQL'
-                UPDATE users u
-                JOIN panaderos p ON p.user_id = u.id
-                SET u.phone = COALESCE(u.phone, p.telefono),
-                    u.ci = COALESCE(u.ci, p.ci)
-                WHERE p.user_id IS NOT NULL;
-            SQL
-            );
+            // Use a join update on drivers that support it; fallback to subquery update for SQLite
+            $driver = DB::connection()->getDriverName();
+
+            if ($driver === 'sqlite') {
+                DB::statement(<<<'SQL'
+                    UPDATE users
+                    SET phone = COALESCE(phone, (
+                        SELECT p.telefono FROM panaderos p WHERE p.user_id = users.id LIMIT 1
+                    )),
+                        ci = COALESCE(ci, (
+                        SELECT p.ci FROM panaderos p WHERE p.user_id = users.id LIMIT 1
+                    ))
+                    WHERE EXISTS (SELECT 1 FROM panaderos p WHERE p.user_id = users.id);
+                SQL
+                );
+            } else {
+                DB::statement(<<<'SQL'
+                    UPDATE users u
+                    JOIN panaderos p ON p.user_id = u.id
+                    SET u.phone = COALESCE(u.phone, p.telefono),
+                        u.ci = COALESCE(u.ci, p.ci)
+                    WHERE p.user_id IS NOT NULL;
+                SQL
+                );
+            }
 
             // Drop columns from panaderos if they exist
             $cols = Schema::getColumnListing('panaderos');
@@ -71,14 +87,30 @@ return new class extends Migration
             });
 
             // Try to copy back data from users -> panaderos when linked
-            DB::statement(<<<'SQL'
-                UPDATE panaderos p
-                JOIN users u ON p.user_id = u.id
-                SET p.telefono = COALESCE(p.telefono, u.phone),
-                    p.ci = COALESCE(p.ci, u.ci)
-                WHERE p.user_id IS NOT NULL;
-            SQL
-            );
+            $driver = DB::connection()->getDriverName();
+
+            if ($driver === 'sqlite') {
+                DB::statement(<<<'SQL'
+                    UPDATE panaderos
+                    SET telefono = COALESCE(telefono, (
+                        SELECT u.phone FROM users u WHERE u.id = panaderos.user_id LIMIT 1
+                    )),
+                        ci = COALESCE(ci, (
+                        SELECT u.ci FROM users u WHERE u.id = panaderos.user_id LIMIT 1
+                    ))
+                    WHERE EXISTS (SELECT 1 FROM users u WHERE u.id = panaderos.user_id);
+                SQL
+                );
+            } else {
+                DB::statement(<<<'SQL'
+                    UPDATE panaderos p
+                    JOIN users u ON p.user_id = u.id
+                    SET p.telefono = COALESCE(p.telefono, u.phone),
+                        p.ci = COALESCE(p.ci, u.ci)
+                    WHERE p.user_id IS NOT NULL;
+                SQL
+                );
+            }
         }
 
         // Remove ci column from users if exists
