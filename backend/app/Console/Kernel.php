@@ -28,6 +28,15 @@ class Kernel extends ConsoleKernel
     {
         // Generate dashboard snapshot every 5 minutes (cached JSON)
         $schedule->command('dashboard:generate')->everyFiveMinutes();
+        
+        // Process queued jobs on shared hosting via cron: schedule:run -> queue:work --stop-when-empty
+        // This will run the worker until the queue is empty and then exit. Cron should call schedule:run every minute.
+        $schedule->command('queue:work --stop-when-empty --tries=3 --sleep=3 --timeout=120')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->everyMinute()
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/queue-schedule.log'));
     }
 
     /**
