@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\Produccion;
 use App\Models\Receta;
 use App\Models\Producto;
+use App\Models\MateriaPrima;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use App\Support\SafeTransaction;
 
 class ProduccionController extends Controller
@@ -76,14 +78,77 @@ class ProduccionController extends Controller
             ], 422);
         }
 
-        // Obtener la receta activa del producto y realizar verificaciones antes de abrir la transacción
+        // Obtener la receta activa del producto
         $receta = Receta::where('producto_id', $request->producto_id)
             ->where('activa', true)
             ->first();
 
+        // Ingredientes proporcionados por el usuario
+        $ingredientesProporcionados = $request->get('ingredientes', []);
+
+        // Variable para mensajes de receta
+        $recetaMessage = null;
+        
+        // Si no hay receta pero hay ingredientes, crear receta automáticamente
+        if (!$receta && !empty($ingredientesProporcionados)) {
+            try {
+                $receta = Receta::create([
+                    'producto_id' => $request->producto_id,
+                    'activa' => true,
+                    'nombre' => 'Receta generada automáticamente',
+                    'descripcion' => 'Creada desde producción el ' . now()->format('d/m/Y H:i')
+                ]);
+
+                // Calcular cantidad por unidad producida
+                $cantidadProducida = $request->cantidad_producida;
+                foreach ($ingredientesProporcionados as $ing) {
+                    $receta->ingredientes()->create([
+                        'materia_prima_id' => $ing['materia_prima_id'],
+                        'cantidad_necesaria' => $ing['cantidad'] / $cantidadProducida, // Cantidad por unidad
+                        'unidad_medida' => MateriaPrima::find($ing['materia_prima_id'])->unidad_medida ?? 'kg'
+                    ]);
+                }
+
+                $recetaMessage = 'Receta creada automáticamente';
+                Log::info("Receta creada automáticamente para producto {$request->producto_id}");
+            } catch (\Exception $e) {
+                Log::error("Error creando receta automática: " . $e->getMessage());
+            }
+        }
+
+        // Si hay receta pero también ingredientes proporcionados, actualizar receta
+        if ($receta && !empty($ingredientesProporcionados)) {
+            try {
+                // Calcular cantidad por unidad producida
+                $cantidadProducida = $request->cantidad_producida;
+                
+                // Eliminar ingredientes antiguos
+                $receta->ingredientes()->delete();
+                
+                // Crear nuevos ingredientes
+                foreach ($ingredientesProporcionados as $ing) {
+                    $receta->ingredientes()->create([
+                        'materia_prima_id' => $ing['materia_prima_id'],
+                        'cantidad_necesaria' => $ing['cantidad'] / $cantidadProducida, // Cantidad por unidad
+                        'unidad_medida' => MateriaPrima::find($ing['materia_prima_id'])->unidad_medida ?? 'kg'
+                    ]);
+                }
+
+                $receta->update([
+                    'descripcion' => 'Actualizada desde producción el ' . now()->format('d/m/Y H:i')
+                ]);
+
+                $recetaMessage = 'Receta actualizada automáticamente';
+                Log::info("Receta actualizada automáticamente para producto {$request->producto_id}");
+            } catch (\Exception $e) {
+                Log::error("Error actualizando receta: " . $e->getMessage());
+            }
+        }
+
+        // Si después de todo no hay receta, error
         if (!$receta) {
             return response()->json([
-                'message' => 'No hay receta activa para este producto'
+                'message' => 'No hay receta activa para este producto y no se proporcionaron ingredientes'
             ], 422);
         }
 
@@ -105,33 +170,75 @@ class ProduccionController extends Controller
         }
 
         try {
-            $produccion = SafeTransaction::run(function () use ($request, $receta) {
-                // Crear registro de producción
+            $recetaMessage = null; // Para notificar si se creó/actualizó receta
+            $ingredientesProporcionados = $request->get('ingredientes', []);
+            
+            $produccion = SafeTransaction::run(function () use ($request, $receta, $ingredientesProporcionados, &$recetaMessage) {
+                // Crear la producción
                 $produccion = Produccion::create([
                     'producto_id' => $request->producto_id,
-                    'receta_id' => $receta->id,
-                    'user_id' => Auth::id(),
+                    'cantidad_producida' => $request->cantidad_producida,
                     'panadero_id' => $request->panadero_id,
+                    'harina_real_usada' => $request->harina_real_usada ?? 0,
                     'fecha_produccion' => $request->fecha_produccion,
                     'hora_inicio' => $request->hora_inicio,
                     'hora_fin' => $request->hora_fin,
-                    'cantidad_producida' => $request->cantidad_producida,
+                    'observaciones' => $request->observaciones,
                     'unidad' => $request->unidad,
-                    'harina_real_usada' => $request->harina_real_usada ?? 0,
-                    'estado' => 'en_proceso',
-                    'observaciones' => $request->observaciones
                 ]);
 
-                // Procesar la producción (descuenta inventario)
-                $extraIngredientes = $request->get('ingredientes', []);
-                $produccion->procesar($extraIngredientes);
+                // Procesar receta si existe
+                if ($receta && $receta->ingredientes) {
+                    foreach ($receta->ingredientes as $ingrediente) {
+                        // Verificar stock de materias primas
+                        $materiaPrima = MateriaPrima::find($ingrediente->materia_prima_id);
+                        if (!$materiaPrima) {
+                            throw new \Exception('Materia prima no encontrada');
+                        }
+
+                        $cantidadRequerida = $ingrediente->cantidad_necesaria * $request->cantidad_producida;
+
+                        if ($materiaPrima->cantidad < $cantidadRequerida) {
+                            throw new \Exception("Stock insuficiente de {$materiaPrima->nombre}. Requerido: {$cantidadRequerida}, Disponible: {$materiaPrima->cantidad}");
+                        }
+
+                        // Descontar materias primas
+                        $materiaPrima->cantidad -= $cantidadRequerida;
+                        $materiaPrima->save();
+                    }
+                }
+
+                // Procesar ingredientes proporcionados manualmente (descuento directo)
+                if (!empty($ingredientesProporcionados)) {
+                    foreach ($ingredientesProporcionados as $ing) {
+                        $materiaPrima = MateriaPrima::find($ing['materia_prima_id']);
+                        if (!$materiaPrima) {
+                            throw new \Exception('Materia prima no encontrada');
+                        }
+
+                        if ($materiaPrima->cantidad < $ing['cantidad']) {
+                            throw new \Exception("Stock insuficiente de {$materiaPrima->nombre}. Requerido: {$ing['cantidad']}, Disponible: {$materiaPrima->cantidad}");
+                        }
+
+                        $materiaPrima->cantidad -= $ing['cantidad'];
+                        $materiaPrima->save();
+                    }
+                }
 
                 return $produccion;
             });
 
+            // Construir mensaje de éxito
+            $successMessage = 'Producción registrada exitosamente';
+            if ($recetaMessage) {
+                $successMessage .= '. ' . $recetaMessage;
+            }
+
             return response()->json([
-                'message' => 'Producción registrada exitosamente',
-                'data' => $produccion->load(['producto', 'receta', 'user'])
+                'success' => true,
+                'message' => $successMessage,
+                'data' => $produccion->load(['producto', 'panadero']),
+                'receta_info' => $recetaMessage // Info adicional sobre receta
             ], 201);
 
         } catch (\Exception $e) {

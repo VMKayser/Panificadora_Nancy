@@ -274,7 +274,16 @@ export default function MovimientosInventarioPanel() {
             try {
               res = await crearProduccion(payload);
               produccionId = res?.data?.id || res?.id || null;
-              toast.success(res?.message || 'Producción creada y asignada al panadero');
+              
+              // Mostrar mensaje con información de receta si existe
+              const baseMessage = res?.message || 'Producción creada y asignada al panadero';
+              const recetaInfo = res?.receta_info || res?.data?.receta_info;
+              
+              if (recetaInfo) {
+                toast.success(`${baseMessage}. ${recetaInfo}`, { autoClose: 5000 });
+              } else {
+                toast.success(baseMessage);
+              }
             } catch (err) {
               if (err.response?.status === 422) {
                 const data = err.response.data || {};
@@ -609,12 +618,21 @@ export default function MovimientosInventarioPanel() {
                     {/* Extra ingredientes UI for single production */}
                     <Card className="mb-2 p-2 border-info">
                       <div className="d-flex justify-content-between align-items-center mb-2">
-                        <div className="text-muted small">Ingredientes adicionales (opcional). Se descontarán del inventario junto a los de la receta.</div>
+                        <div className="text-muted small">
+                          Ingredientes usados. Se descontarán del inventario.
+                          {produccionExtras.length > 0 && (
+                            <div className="text-success mt-1">
+                              <i className="bi bi-info-circle me-1"></i>
+                              Si no existe receta se creará automáticamente. Si existe se actualizará.
+                            </div>
+                          )}
+                        </div>
                         <Button 
                           size="sm" 
                           variant="outline-success" 
                           onClick={autocompletarIngredientes}
                           disabled={!formData.cantidad}
+                          title="Cargar ingredientes desde la receta existente"
                         >
                           🪄 Usar receta
                         </Button>
