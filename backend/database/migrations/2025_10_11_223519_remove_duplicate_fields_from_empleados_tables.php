@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -20,8 +21,21 @@ return new class extends Migration
                 $columnsToDrop = [];
                 if (in_array('nombre', $panaderosCols)) $columnsToDrop[] = 'nombre';
                 if (in_array('apellido', $panaderosCols)) $columnsToDrop[] = 'apellido';
-                if (in_array('email', $panaderosCols)) $columnsToDrop[] = 'email';
-                
+                if (in_array('email', $panaderosCols)) {
+                    // Try to drop known unique index first to avoid SQLite error
+                    try {
+                        $table->dropUnique('panaderos_email_unique');
+                    } catch (\Throwable $e) {
+                        // Fallback: try raw DROP INDEX IF EXISTS (SQLite/MySQL compat)
+                        try {
+                            DB::statement('DROP INDEX IF EXISTS panaderos_email_unique');
+                        } catch (\Throwable $e2) {
+                            // ignore if DB doesn't support DROP INDEX IF EXISTS
+                        }
+                    }
+                    $columnsToDrop[] = 'email';
+                }
+
                 if (!empty($columnsToDrop)) {
                     $table->dropColumn($columnsToDrop);
                 }
@@ -35,8 +49,19 @@ return new class extends Migration
                 $columnsToDrop = [];
                 if (in_array('nombre', $vendedoresCols)) $columnsToDrop[] = 'nombre';
                 if (in_array('apellido', $vendedoresCols)) $columnsToDrop[] = 'apellido';
-                if (in_array('email', $vendedoresCols)) $columnsToDrop[] = 'email';
-                
+                if (in_array('email', $vendedoresCols)) {
+                    try {
+                        $table->dropUnique('vendedores_email_unique');
+                    } catch (\Throwable $e) {
+                        try {
+                            DB::statement('DROP INDEX IF EXISTS vendedores_email_unique');
+                        } catch (\Throwable $e2) {
+                            // ignore
+                        }
+                    }
+                    $columnsToDrop[] = 'email';
+                }
+
                 if (!empty($columnsToDrop)) {
                     $table->dropColumn($columnsToDrop);
                 }
