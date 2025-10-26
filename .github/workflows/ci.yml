@@ -30,7 +30,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: mbstring, intl, pdo_mysql
+          extensions: mbstring, intl, pdo_mysql, pdo_sqlite
           coverage: none
 
       - name: Use Node (for front-end tooling if needed)
@@ -56,30 +56,23 @@ jobs:
           cp .env.example .env || true
           php artisan key:generate || true
 
-      - name: Wait for MySQL
+      - name: Prepare sqlite database for tests
+        working-directory: backend
         run: |
-          for i in {1..30}; do
-            mysql -h 127.0.0.1 -P 3306 -uroot -proot -e 'select 1' && break || sleep 1
-          done
+          # Use SQLite in-memory for CI tests to avoid depending on external DB service
+          cp .env.example .env || true
+          php artisan key:generate || true
 
-      - name: Run migrations
+      - name: Run migrations (sqlite in-memory)
         working-directory: backend
         env:
-          DB_CONNECTION: mysql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: testing
-          DB_USERNAME: root
-          DB_PASSWORD: root
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
         run: php artisan migrate --force
 
-      - name: Run phpunit
+      - name: Run phpunit (sqlite in-memory)
         working-directory: backend
         env:
-          DB_CONNECTION: mysql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: testing
-          DB_USERNAME: root
-          DB_PASSWORD: root
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
         run: vendor/bin/phpunit --testdox
