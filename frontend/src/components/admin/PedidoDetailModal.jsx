@@ -167,15 +167,17 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                           <tbody>
                             <tr>
                               <td className="text-muted" style={{ width: '40%' }}>Nombre:</td>
-                              <td><strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong></td>
+                              <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                                <strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong>
+                              </td>
                             </tr>
                             <tr>
                               <td className="text-muted">Email:</td>
-                              <td>{pedido.cliente_email}</td>
+                              <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.cliente_email}</td>
                             </tr>
                             <tr>
                               <td className="text-muted">Teléfono:</td>
-                              <td>{pedido.cliente_telefono}</td>
+                              <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.cliente_telefono}</td>
                             </tr>
                           </tbody>
                         </table>
@@ -185,15 +187,17 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                       <div className="d-block d-md-none">
                         <div className="mb-2">
                           <div className="text-muted">Nombre</div>
-                          <div><strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong></div>
+                          <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                            <strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong>
+                          </div>
                         </div>
                         <div className="mb-2">
                           <div className="text-muted">Email</div>
-                          <div>{pedido.cliente_email}</div>
+                          <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.cliente_email}</div>
                         </div>
                         <div className="mb-0">
                           <div className="text-muted">Teléfono</div>
-                          <div>{pedido.cliente_telefono}</div>
+                          <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.cliente_telefono}</div>
                         </div>
                       </div>
                     </div>
@@ -241,7 +245,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                             {pedido.tipo_entrega === 'delivery' && (
                               <tr>
                                 <td className="text-muted">Dirección:</td>
-                                <td>{pedido.direccion_entrega}</td>
+                                <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.direccion_entrega}</td>
                               </tr>
                             )}
                           </tbody>
@@ -274,15 +278,17 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                         {pedido.tipo_entrega === 'delivery' && (
                           <div className="mb-0">
                             <div className="text-muted">Dirección</div>
-                            <div>{pedido.direccion_entrega}</div>
+                            <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.direccion_entrega}</div>
                           </div>
                         )}
                       </div>
                     </div>
                   </div>
                 </div>
+              </div>
 
-                {/* Productos */}
+              {/* Productos */}
+              <div className="row">
                 <div className="col-12 mb-4">
                   <div className="card">
                     <div className="card-header bg-light">
