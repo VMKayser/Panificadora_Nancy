@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Suspense } from 'react';
-import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Spinner, Alert, Nav } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Spinner, Alert, Nav, Pagination } from 'react-bootstrap';
 import { admin, getCategorias } from '../services/api';
 import { toast } from 'react-toastify';
 import ProductoForm from '../components/admin/ProductoForm';
@@ -28,9 +28,19 @@ const AdminPanel = () => {
   const [openClienteSignal, setOpenClienteSignal] = useState(0);
   const [pagosFilters, setPagosFilters] = useState({});
   const [pagosOpenFor, setPagosOpenFor] = useState(null);
+  
+  // Paginación para productos
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [perPage] = useState(20);
 
   // debounce searchTerm to avoid firing requests on every keystroke
   const debouncedSearchTerm = useDebounce(searchTerm, 350);
+
+  useEffect(() => {
+    // Reset page when filters change
+    setCurrentPage(1);
+  }, [debouncedSearchTerm, filtroCategoria, filtroActivo, activeTab]);
 
   useEffect(() => {
     // Solo cargar productos cuando la pestaña activa sea 'productos'
@@ -40,16 +50,20 @@ const AdminPanel = () => {
       // No cargar nada si no está en productos (optimización)
       setLoading(false);
     }
-  }, [debouncedSearchTerm, filtroCategoria, filtroActivo, activeTab]);
+  }, [debouncedSearchTerm, filtroCategoria, filtroActivo, activeTab, currentPage]);
 
   const cargarDatos = async () => {
     try {
       setLoading(true);
       
       const params = {};
-  if (debouncedSearchTerm) params.search = debouncedSearchTerm;
+      if (debouncedSearchTerm) params.search = debouncedSearchTerm;
       if (filtroCategoria) params.categoria_id = filtroCategoria;
       if (filtroActivo !== '') params.activo = filtroActivo;
+      
+      // Agregar paginación
+      params.per_page = perPage;
+      params.page = currentPage;
 
       const [productosData, categoriasData, statsData] = await Promise.all([
         admin.getProductos(params),
@@ -58,6 +72,13 @@ const AdminPanel = () => {
       ]);
 
       setProductos(productosData.data || productosData);
+      
+      // Actualizar información de paginación
+      if (productosData.last_page) {
+        setTotalPages(productosData.last_page);
+        console.log('[AdminPanel] Total pages:', productosData.last_page, 'Current:', currentPage);
+      }
+      
       setCategorias(categoriasData);
       setStats(statsData);
     } catch (error) {
@@ -144,15 +165,24 @@ const AdminPanel = () => {
           </p>
         </Col>
         {activeTab === 'productos' && (
-          <Col xs="auto">
-            <Button
-              size="lg"
-              onClick={handleNuevoProducto}
-              style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}
-            >
-              + Nuevo Producto
-            </Button>
-          </Col>
+          <>
+            {totalPages > 1 && (
+              <Col xs="auto">
+                <small className="text-muted">
+                  Página {currentPage} de {totalPages} | {productos.length} productos
+                </small>
+              </Col>
+            )}
+            <Col xs="auto">
+              <Button
+                size="lg"
+                onClick={handleNuevoProducto}
+                style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}
+              >
+                + Nuevo Producto
+              </Button>
+            </Col>
+          </>
         )}
         {activeTab === 'clientes' && (
           <Col xs="auto">
@@ -420,6 +450,41 @@ const AdminPanel = () => {
                 ))}
               </tbody>
             </Table>
+          )}
+          
+          {/* Controles de Paginación */}
+          {!loading && productos.length > 0 && totalPages > 1 && (
+            <div className="d-flex justify-content-center mt-4">
+              <Pagination>
+                <Pagination.First onClick={() => setCurrentPage(1)} disabled={currentPage === 1} />
+                <Pagination.Prev onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1} />
+                
+                {[...Array(totalPages)].map((_, idx) => {
+                  const page = idx + 1;
+                  if (
+                    page === 1 ||
+                    page === totalPages ||
+                    (page >= currentPage - 1 && page <= currentPage + 1)
+                  ) {
+                    return (
+                      <Pagination.Item
+                        key={page}
+                        active={page === currentPage}
+                        onClick={() => setCurrentPage(page)}
+                      >
+                        {page}
+                      </Pagination.Item>
+                    );
+                  } else if (page === currentPage - 2 || page === currentPage + 2) {
+                    return <Pagination.Ellipsis key={page} disabled />;
+                  }
+                  return null;
+                })}
+                
+                <Pagination.Next onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages} />
+                <Pagination.Last onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} />
+              </Pagination>
+            </div>
           )}
         </Card.Body>
       </Card>

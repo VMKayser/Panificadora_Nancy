@@ -10,6 +10,7 @@ use App\Models\Producto;
 use App\Models\MovimientoProductoFinal;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use App\Models\ConfiguracionSistema;
 
 class InventarioDashboardController extends Controller
@@ -17,7 +18,14 @@ class InventarioDashboardController extends Controller
     public function index(Request $request)
     {
     // Cache whole dashboard payload for a short TTL to avoid heavy DB load on small servers
-    $ttl = (int) ConfiguracionSistema::get('dashboard_ttl_seconds', 60);
+    $ttl = 60; // Default 60 seconds if ConfiguracionSistema doesn't exist
+    try {
+        $ttl = (int) ConfiguracionSistema::get('dashboard_ttl_seconds', 60);
+    } catch (\Exception $e) {
+        // Si la tabla no existe o hay error, usar valor por defecto
+        Log::warning('ConfiguracionSistema no disponible, usando TTL por defecto');
+    }
+    
     $payload = Cache::remember('inventario.dashboard', $ttl, function() {
             $hoy = date('Y-m-d');
 

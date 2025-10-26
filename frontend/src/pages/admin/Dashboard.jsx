@@ -42,6 +42,13 @@ const Dashboard = () => {
 
     (async () => {
       try {
+        const token = localStorage.getItem('auth_token');
+        console.log('[Dashboard] Token presente:', !!token);
+        if (!token) {
+          console.error('[Dashboard] No hay token de autenticación');
+          return;
+        }
+        
         console.log('[Dashboard] Intentando cargar desde API...');
         const d = await admin.getDashboardInventario();
         console.log('[Dashboard] Datos recibidos del API:', d);
@@ -49,6 +56,12 @@ const Dashboard = () => {
         return;
       } catch (err) {
         console.error('[Dashboard] Error al cargar desde API:', err);
+        console.error('[Dashboard] Error details:', {
+          message: err.message,
+          response: err.response?.data,
+          status: err.response?.status,
+          url: err.config?.url
+        });
         console.log('[Dashboard] Intentando cargar datos de muestra...');
         // If API call fails, try the sample JSON fallback (keeps previous behavior)
         try {

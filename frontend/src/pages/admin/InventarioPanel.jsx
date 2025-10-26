@@ -41,15 +41,19 @@ export default function InventarioPanel() {
       setLoading(true);
       if (activeTab === 'materias') {
         const data = await admin.getMateriasPrimas({ per_page: perPage, page });
+        console.log('[InventarioPanel] Materias Primas data:', data);
         setMaterias(data.data || data);
         if (data.last_page) {
           setTotalPages(data.last_page);
+          console.log('[InventarioPanel] Total pages:', data.last_page);
         }
       } else {
         const data = await admin.getProductosFinales({ per_page: perPage, page });
+        console.log('[InventarioPanel] Productos Finales data:', data);
         setProductosFinal(data.data || data);
         if (data.last_page) {
           setTotalPages(data.last_page);
+          console.log('[InventarioPanel] Total pages:', data.last_page);
         }
       }
     } catch (error) {
@@ -203,7 +207,14 @@ export default function InventarioPanel() {
             <Alert variant="info">No hay materias primas registradas.</Alert>
           ) : (
             <>
-              <h4 className="mb-3">📦 Inventario de Materias Primas</h4>
+              <div className="d-flex justify-content-between align-items-center mb-3">
+                <h4 className="mb-0">📦 Inventario de Materias Primas</h4>
+                {totalPages > 1 && (
+                  <small className="text-muted">
+                    Página {currentPage} de {totalPages} | Mostrando {materias.length} items
+                  </small>
+                )}
+              </div>
               <Table responsive hover>
                 <thead>
                   <tr>
@@ -325,7 +336,14 @@ export default function InventarioPanel() {
             <Alert variant="info">No hay productos finales en inventario.</Alert>
           ) : (
             <>
-              <h4 className="mb-3">🍞 Inventario de Productos Finales</h4>
+              <div className="d-flex justify-content-between align-items-center mb-3">
+                <h4 className="mb-0">🍞 Inventario de Productos Finales</h4>
+                {totalPages > 1 && (
+                  <small className="text-muted">
+                    Página {currentPage} de {totalPages} | Mostrando {productosFinal.length} items
+                  </small>
+                )}
+              </div>
               <Table responsive hover>
                 <thead>
                   <tr>
