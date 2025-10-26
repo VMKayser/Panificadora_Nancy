@@ -124,7 +124,7 @@ export default function MovimientosInventarioPanel() {
             cantidad: parseFloat(formData.cantidad),
             costo_unitario: parseFloat(formData.costo_unitario),
             numero_factura: formData.numero_factura,
-            observaciones: formData.observaciones
+            observaciones: formData.observaciones?.trim() || null
           });
           toast.success('Compra registrada exitosamente');
         } else {
@@ -133,7 +133,7 @@ export default function MovimientosInventarioPanel() {
           await admin.ajustarStockMateriaPrima(selectedItem.id, {
             nuevo_stock: nuevoStock,
             motivo: formData.motivo || 'merma',
-            observaciones: formData.observaciones
+            observaciones: formData.observaciones?.trim() || null
           });
           toast.success('Salida registrada exitosamente');
         }
@@ -171,14 +171,14 @@ export default function MovimientosInventarioPanel() {
               // build payload for this line
               const payload = {
                 producto_id: line.producto_id,
-                fecha_produccion: line.fecha_produccion || produccionForm.fecha_produccion,
-                hora_inicio: line.hora_inicio || produccionForm.hora_inicio || null,
-                hora_fin: line.hora_fin || produccionForm.hora_fin || null,
-                harina_real_usada: 0, // Calculado automáticamente por el backend
+                fecha_produccion: line.fecha_produccion,
+                hora_inicio: line.hora_inicio || null,
+                hora_fin: line.hora_fin || null,
+                harina_real_usada: 0,
                 cantidad_producida: line.cantidad_producida,
-                unidad: line.unidad || produccionForm.unidad || 'unidades',
+                unidad: line.unidad || 'unidades',
                 panadero_id: line.panadero_id || produccionForm.panadero_id,
-                observaciones: line.observaciones || formData.observaciones || 'Creado desde Movimientos - multi'
+                observaciones: (line.observaciones || formData.observaciones)?.trim() || null
               };
 
               try {
@@ -229,7 +229,7 @@ export default function MovimientosInventarioPanel() {
               cantidad_producida: formData.cantidad, // Usar la cantidad del formulario principal
               unidad: produccionForm.unidad || 'unidades',
               panadero_id: produccionForm.panadero_id,
-              observaciones: formData.observaciones || 'Creado desde Movimientos - entrada',
+              observaciones: formData.observaciones?.trim() || null,
               ingredientes: produccionExtras.filter(i => i.materia_prima_id && i.cantidad).map(i => ({ materia_prima_id: i.materia_prima_id, cantidad: parseFloat(i.cantidad) }))
             };
             let res;
@@ -270,7 +270,7 @@ export default function MovimientosInventarioPanel() {
           const ajustePayload = {
             nuevo_stock: nuevoStock,
             motivo: formData.motivo || 'ajuste_manual',
-            observaciones: formData.observaciones
+            observaciones: formData.observaciones?.trim() || null
           };
           await admin.ajustarInventarioProducto(selectedItem.producto_id, ajustePayload);
           toast.success('Ajuste registrado exitosamente');
