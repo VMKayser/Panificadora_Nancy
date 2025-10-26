@@ -57,33 +57,39 @@ return new class extends Migration
             if (in_array('ci', $cols)) $toDrop[] = 'ci';
 
             if (!empty($toDrop)) {
-                Schema::table('panaderos', function (Blueprint $table) use ($toDrop, $cols) {
-                    // Drop indexes before dropping columns to avoid SQLite errors
-                    if (in_array('ci', $cols)) {
+                // Drop indexes before dropping columns (SQLite-safe approach)
+                // Try raw DROP INDEX IF EXISTS first (works on SQLite and MySQL)
+                if (in_array('ci', $cols)) {
+                    try {
+                        DB::statement('DROP INDEX IF EXISTS panaderos_ci_unique');
+                    } catch (\Throwable $e) {
+                        // Some DBs might not support IF EXISTS; try without it
                         try {
-                            $table->dropUnique('panaderos_ci_unique');
-                        } catch (\Throwable $e) {
-                            try {
-                                DB::statement('DROP INDEX IF EXISTS panaderos_ci_unique');
-                            } catch (\Throwable $e2) {
-                                // ignore
-                            }
+                            Schema::table('panaderos', function (Blueprint $table) {
+                                $table->dropUnique('panaderos_ci_unique');
+                            });
+                        } catch (\Throwable $e2) {
+                            // ignore if index doesn't exist
                         }
                     }
-                    
-                    // Drop telefono index if exists (some schemas may have it)
-                    if (in_array('telefono', $cols)) {
+                }
+                
+                if (in_array('telefono', $cols)) {
+                    try {
+                        DB::statement('DROP INDEX IF EXISTS panaderos_telefono_unique');
+                    } catch (\Throwable $e) {
                         try {
-                            $table->dropUnique('panaderos_telefono_unique');
-                        } catch (\Throwable $e) {
-                            try {
-                                DB::statement('DROP INDEX IF EXISTS panaderos_telefono_unique');
-                            } catch (\Throwable $e2) {
-                                // ignore
-                            }
+                            Schema::table('panaderos', function (Blueprint $table) {
+                                $table->dropUnique('panaderos_telefono_unique');
+                            });
+                        } catch (\Throwable $e2) {
+                            // ignore if index doesn't exist
                         }
                     }
+                }
 
+                // Now drop the columns
+                Schema::table('panaderos', function (Blueprint $table) use ($toDrop) {
                     foreach ($toDrop as $col) {
                         if (Schema::hasColumn('panaderos', $col)) {
                             $table->dropColumn($col);
