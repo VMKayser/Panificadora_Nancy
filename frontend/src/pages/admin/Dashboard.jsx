@@ -40,24 +40,26 @@ const Dashboard = () => {
   useEffect(() => {
     let mounted = true;
 
-    // First try to load the dashboard payload from the backend API.
-    // If the API is unreachable (dev mode or network issue), fall back to the sample JSON
-    // so the UI still renders for local development.
     (async () => {
       try {
+        console.log('[Dashboard] Intentando cargar desde API...');
         const d = await admin.getDashboardInventario();
+        console.log('[Dashboard] Datos recibidos del API:', d);
         if (mounted) setData(d);
         return;
       } catch (err) {
+        console.error('[Dashboard] Error al cargar desde API:', err);
+        console.log('[Dashboard] Intentando cargar datos de muestra...');
         // If API call fails, try the sample JSON fallback (keeps previous behavior)
         try {
           const resp = await fetch(`${import.meta.env.BASE_URL}sample-dashboard.json`);
           if (!resp.ok) throw new Error('sample not available');
           const d = await resp.json();
+          console.log('[Dashboard] Usando datos de muestra:', d);
           if (mounted) setData(d);
         } catch (e) {
           // swallow: leave data null so the loading state shows
-          console.warn('[Dashboard] Could not load dashboard from API nor sample JSON:', err.message || err);
+          console.warn('[Dashboard] No se pudo cargar ni de API ni de muestra:', err.message || err);
         }
       }
     })();

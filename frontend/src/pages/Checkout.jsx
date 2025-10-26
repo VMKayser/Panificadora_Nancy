@@ -95,12 +95,26 @@ const Checkout = () => {
   // Prefill form when user is logged in
   useEffect(() => {
     if (!user) return;
+    
+    // Separar nombre y apellido si user.name contiene espacio
+    let nombre = '';
+    let apellido = '';
+    
+    if (user.cliente?.nombre) {
+      nombre = user.cliente.nombre;
+      apellido = user.cliente.apellido || '';
+    } else if (user.name) {
+      const parts = user.name.trim().split(' ');
+      nombre = parts[0] || '';
+      apellido = parts.slice(1).join(' ') || '';
+    }
+    
     setFormData(prev => ({
       ...prev,
-      cliente_nombre: prev.cliente_nombre || user.name || '',
-      cliente_apellido: prev.cliente_apellido || user.last_name || user.apellido || '',
+      cliente_nombre: prev.cliente_nombre || nombre,
+      cliente_apellido: prev.cliente_apellido || apellido,
       cliente_email: prev.cliente_email || user.email || '',
-      cliente_telefono: prev.cliente_telefono || user.telefono || user.phone || '',
+      cliente_telefono: prev.cliente_telefono || user.phone || user.cliente?.telefono || '',
     }));
   }, [user]);
 

@@ -15,12 +15,11 @@ export default function MovimientosInventarioPanel() {
   const [multiResults, setMultiResults] = useState([]);
   const [produccionForm, setProduccionForm] = useState({
     panadero_id: '',
-    fecha_produccion: new Date().toISOString().slice(0,10),
+    fecha_produccion: '',
     hora_inicio: '',
     hora_fin: '',
-    cantidad_producida: '',
-    unidad: 'unidades',
-    harina_real_usada: ''
+    unidad: 'unidades'
+    // cantidad_producida y harina_real_usada eliminados - se calcula automáticamente
   });
   const [produccionExtras, setProduccionExtras] = useState([]); // extra ingredientes for single production
   const [produccionErrorDetails, setProduccionErrorDetails] = useState([]);
@@ -92,9 +91,8 @@ export default function MovimientosInventarioPanel() {
       fecha_produccion: new Date().toISOString().slice(0,10),
       hora_inicio: '',
       hora_fin: '',
-      cantidad_producida: '',
-      unidad: 'unidades',
-      harina_real_usada: ''
+      unidad: 'unidades'
+      // cantidad_producida y harina_real_usada eliminados
     });
     setIsSubmitting(false);
     setProduccionErrorDetails([]);
@@ -176,7 +174,7 @@ export default function MovimientosInventarioPanel() {
                 fecha_produccion: line.fecha_produccion || produccionForm.fecha_produccion,
                 hora_inicio: line.hora_inicio || produccionForm.hora_inicio || null,
                 hora_fin: line.hora_fin || produccionForm.hora_fin || null,
-                harina_real_usada: line.harina_real_usada || produccionForm.harina_real_usada || 0,
+                harina_real_usada: 0, // Calculado automáticamente por el backend
                 cantidad_producida: line.cantidad_producida,
                 unidad: line.unidad || produccionForm.unidad || 'unidades',
                 panadero_id: line.panadero_id || produccionForm.panadero_id,
@@ -227,16 +225,18 @@ export default function MovimientosInventarioPanel() {
               fecha_produccion: produccionForm.fecha_produccion,
               hora_inicio: produccionForm.hora_inicio || null,
               hora_fin: produccionForm.hora_fin || null,
-              harina_real_usada: produccionForm.harina_real_usada || 0,
-              cantidad_producida: produccionForm.cantidad_producida || formData.cantidad,
+              harina_real_usada: 0, // Calculado automáticamente por el backend
+              cantidad_producida: formData.cantidad, // Usar la cantidad del formulario principal
               unidad: produccionForm.unidad || 'unidades',
               panadero_id: produccionForm.panadero_id,
               observaciones: formData.observaciones || 'Creado desde Movimientos - entrada',
               ingredientes: produccionExtras.filter(i => i.materia_prima_id && i.cantidad).map(i => ({ materia_prima_id: i.materia_prima_id, cantidad: parseFloat(i.cantidad) }))
             };
             let res;
+            let produccionId = null;
             try {
               res = await crearProduccion(payload);
+              produccionId = res?.data?.id || res?.id || null;
               toast.success(res?.message || 'Producción creada y asignada al panadero');
             } catch (err) {
               if (err.response?.status === 422) {
@@ -249,14 +249,21 @@ export default function MovimientosInventarioPanel() {
               }
               throw err;
             }
-            const produccionId = res?.data?.id || res?.id || null;
+            
+            // Si la producción fue exitosa, cerrar modal y recargar
+            if (produccionId) {
+              handleCloseModal();
+              cargarDatos();
+              setIsSubmitting(false);
+              return;
+            }
           }
         }
 
         // Registrar ajuste de inventario del producto
-        // Si creamos producción y ésta fue procesada por el backend, NO llamar a ajustarInventarioProducto
-        // porque Produccion::procesar() ya actualiza inventario y crea el movimiento dentro de la misma transacción.
-        if (tipoMovimiento === 'entrada' && crearProduccionAsignada && produccionId) {
+        // Solo llegar aquí si NO se creó producción o si fue modo multi (ya manejado arriba)
+        if (tipoMovimiento === 'entrada' && crearProduccionAsignada) {
+          // Ya procesado arriba
           toast.success('Producción creada y stock actualizado por backend');
         } else {
           // Ajuste normal (no creación de producción)
@@ -274,7 +281,15 @@ export default function MovimientosInventarioPanel() {
       cargarDatos();
     } catch (error) {
       console.error('Error registrando movimiento:', error);
-      toast.error(error.response?.data?.message || 'Error al registrar movimiento');
+      console.error('Detalle del error:', error.response?.data);
+      const errorMsg = error.response?.data?.message || error.message || 'Error al registrar movimiento';
+      const errors = error.response?.data?.errors;
+      if (errors) {
+        const errorList = Object.values(errors).flat().join(', ');
+        toast.error(`${errorMsg}: ${errorList}`);
+      } else {
+        toast.error(errorMsg);
+      }
     }
     finally {
       setIsSubmitting(false);
@@ -516,12 +531,8 @@ export default function MovimientosInventarioPanel() {
                     label="Crear producción y asignar a panadero"
                     checked={crearProduccionAsignada}
                     onChange={(e) => {
-                      const checked = e.target.checked;
-                      setCrearProduccionAsignada(checked);
-                      // Autocompletar cantidad producida si está vacío
-                      if (checked && (!produccionForm.cantidad_producida || produccionForm.cantidad_producida === '')) {
-                        setProduccionForm({...produccionForm, cantidad_producida: formData.cantidad});
-                      }
+                      setCrearProduccionAsignada(e.target.checked);
+                      // La cantidad ya está en formData.cantidad
                     }}
                   />
                 </Form.Group>
@@ -681,27 +692,9 @@ export default function MovimientosInventarioPanel() {
                           onChange={(e) => setProduccionForm({...produccionForm, fecha_produccion: e.target.value})}
                         />
                       </Col>
-                      <Col md={6} className="mb-2">
-                        <Form.Label>Cantidad producida</Form.Label>
-                        <Form.Control
-                          type="number"
-                          step="any"
-                          value={produccionForm.cantidad_producida}
-                          onChange={(e) => setProduccionForm({...produccionForm, cantidad_producida: e.target.value})}
-                          placeholder="Dejar vacío usará la cantidad de entrada"
-                        />
-                      </Col>
                     </Row>
 
-                    <Form.Group className="mb-2">
-                      <Form.Label>Harina real usada (kg)</Form.Label>
-                      <Form.Control
-                        type="number"
-                        step="0.01"
-                        value={produccionForm.harina_real_usada}
-                        onChange={(e) => setProduccionForm({...produccionForm, harina_real_usada: e.target.value})}
-                      />
-                    </Form.Group>
+                    {/* Nota: La cantidad ya se especifica arriba en el campo "Cantidad" principal */}
                   </Card>
                 )}
               </>

@@ -134,7 +134,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Login exitoso',
-            'user' => $user->load('roles'),
+            'user' => $user->load(['roles', 'cliente', 'panadero', 'vendedor']),
             'access_token' => $token,
             'token_type' => 'Bearer',
         ]);
@@ -179,7 +179,7 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         return response()->json([
-            'user' => $request->user()->load('roles')
+            'user' => $request->user()->load(['roles', 'cliente', 'panadero', 'vendedor'])
         ]);
     }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Table, Alert, Spinner, Badge, Card, Row, Col, Nav, Button, Modal, Form } from 'react-bootstrap';
+import { Table, Alert, Spinner, Badge, Card, Row, Col, Nav, Button, Modal, Form, Pagination } from 'react-bootstrap';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
 
@@ -22,20 +22,35 @@ export default function InventarioPanel() {
     activo: true,
   });
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [perPage] = useState(15);
 
   useEffect(() => {
-    cargarDatos();
+    setCurrentPage(1); // Reset page when switching tabs
   }, [activeTab]);
 
-  const cargarDatos = async () => {
+  useEffect(() => {
+    cargarDatos(currentPage);
+  }, [currentPage, activeTab]);
+
+  const cargarDatos = async (page = 1) => {
     try {
       setLoading(true);
       if (activeTab === 'materias') {
-        const data = await admin.getMateriasPrimas();
+        const data = await admin.getMateriasPrimas({ per_page: perPage, page });
         setMaterias(data.data || data);
+        if (data.last_page) {
+          setTotalPages(data.last_page);
+        }
       } else {
-        const data = await admin.getProductosFinales();
+        const data = await admin.getProductosFinales({ per_page: perPage, page });
         setProductosFinal(data.data || data);
+        if (data.last_page) {
+          setTotalPages(data.last_page);
+        }
       }
     } catch (error) {
       console.error('Error al cargar inventario:', error);
@@ -234,6 +249,41 @@ export default function InventarioPanel() {
                   ))}
                 </tbody>
               </Table>
+              
+              {/* Pagination Controls for Materias Primas */}
+              {totalPages > 1 && (
+                <div className="d-flex justify-content-center mt-3">
+                  <Pagination>
+                    <Pagination.First onClick={() => setCurrentPage(1)} disabled={currentPage === 1} />
+                    <Pagination.Prev onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1} />
+                    
+                    {[...Array(totalPages)].map((_, idx) => {
+                      const page = idx + 1;
+                      if (
+                        page === 1 ||
+                        page === totalPages ||
+                        (page >= currentPage - 1 && page <= currentPage + 1)
+                      ) {
+                        return (
+                          <Pagination.Item
+                            key={page}
+                            active={page === currentPage}
+                            onClick={() => setCurrentPage(page)}
+                          >
+                            {page}
+                          </Pagination.Item>
+                        );
+                      } else if (page === currentPage - 2 || page === currentPage + 2) {
+                        return <Pagination.Ellipsis key={page} disabled />;
+                      }
+                      return null;
+                    })}
+                    
+                    <Pagination.Next onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages} />
+                    <Pagination.Last onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} />
+                  </Pagination>
+                </div>
+              )}
             </>
           )}
         </>
@@ -312,6 +362,41 @@ export default function InventarioPanel() {
                   ))}
                 </tbody>
               </Table>
+              
+              {/* Pagination Controls for Productos Finales */}
+              {totalPages > 1 && (
+                <div className="d-flex justify-content-center mt-3">
+                  <Pagination>
+                    <Pagination.First onClick={() => setCurrentPage(1)} disabled={currentPage === 1} />
+                    <Pagination.Prev onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1} />
+                    
+                    {[...Array(totalPages)].map((_, idx) => {
+                      const page = idx + 1;
+                      if (
+                        page === 1 ||
+                        page === totalPages ||
+                        (page >= currentPage - 1 && page <= currentPage + 1)
+                      ) {
+                        return (
+                          <Pagination.Item
+                            key={page}
+                            active={page === currentPage}
+                            onClick={() => setCurrentPage(page)}
+                          >
+                            {page}
+                          </Pagination.Item>
+                        );
+                      } else if (page === currentPage - 2 || page === currentPage + 2) {
+                        return <Pagination.Ellipsis key={page} disabled />;
+                      }
+                      return null;
+                    })}
+                    
+                    <Pagination.Next onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages} />
+                    <Pagination.Last onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} />
+                  </Pagination>
+                </div>
+              )}
             </>
           )}
         </>

@@ -236,7 +236,7 @@ class MateriaPrimaController extends Controller
         $validator = Validator::make($request->all(), [
             'nuevo_stock' => 'required|numeric|min:0',
             'motivo' => 'required|in:inventario_fisico,merma,correccion,devolucion',
-            'observaciones' => 'required|string'
+            'observaciones' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {
@@ -267,7 +267,7 @@ class MateriaPrimaController extends Controller
                     'stock_anterior' => $stockAnterior,
                     'stock_nuevo' => $request->nuevo_stock,
                     'user_id' => Auth::id(),
-                    'observaciones' => "Motivo: {$request->motivo}. {$request->observaciones}"
+                    'observaciones' => "Motivo: {$request->motivo}" . ($request->observaciones ? ". {$request->observaciones}" : '')
                 ]);
 
                 return $materiaPrima->fresh();

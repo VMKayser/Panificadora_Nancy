@@ -93,7 +93,7 @@ export const crearPedido = async (pedidoData) => {
 
 // Crear producción (interfaz panadero)
 export const crearProduccion = async (produccionData) => {
-  const response = await api.post('/producciones', produccionData);
+  const response = await api.post('/inventario/producciones', produccionData);
   return response.data;
 };
 
