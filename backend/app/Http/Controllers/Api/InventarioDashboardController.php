@@ -63,19 +63,19 @@ class InventarioDashboardController extends Controller
             // Productos: ventas y profit en últimos 7 días
             $fechaDesde = date('Y-m-d', strtotime('-6 days'));
             $ventasPorProducto = DB::table('detalle_pedidos')
-                ->select('producto_id', DB::raw('SUM(cantidad) as ventas'), DB::raw('SUM(subtotal) as ingresos'))
+                ->select('productos_id', DB::raw('SUM(cantidad) as ventas'), DB::raw('SUM(subtotal) as ingresos'))
                 ->whereDate('created_at', '>=', $fechaDesde)
-                ->groupBy('producto_id')
+                ->groupBy('productos_id')
                 ->get();
 
             $productos = [];
             foreach ($ventasPorProducto as $row) {
-                $producto = Producto::with('inventario')->find($row->producto_id);
+                $producto = Producto::with('inventario')->find($row->productos_id);
                 $costoPromedio = $producto?->inventario?->costo_promedio ?? 0;
                 $profit = (float) $row->ingresos - ($costoPromedio * (float) $row->ventas);
                 $productos[] = [
-                    'id' => $producto?->id ?? $row->producto_id,
-                    'nombre' => $producto?->nombre ?? ('Producto '.$row->producto_id),
+                    'id' => $producto?->id ?? $row->productos_id,
+                    'nombre' => $producto?->nombre ?? ('Producto '.$row->productos_id),
                     'ventas' => (float) $row->ventas,
                     'profit' => round($profit, 2)
                 ];
