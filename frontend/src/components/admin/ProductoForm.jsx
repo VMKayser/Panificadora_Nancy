@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Form, Row, Col, Button, Image, Alert, Badge } from 'react-bootstrap';
+import { Form, Row, Col, Button, Image, Alert, Badge, Modal } from 'react-bootstrap';
 import { admin, assetBase } from '../../services/api';
 import { toast } from 'react-toastify';
 import PropTypes from 'prop-types';
+import RecetaForm from './RecetaForm';
 
 const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
   const [formData, setFormData] = useState({
@@ -32,6 +33,8 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
   const [imagenesPreview, setImagenesPreview] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showRecetaModal, setShowRecetaModal] = useState(false);
+  const [recetaActual, setRecetaActual] = useState(null);
 
   useEffect(() => {
     if (producto) {
@@ -580,23 +583,62 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
 
       {/* Botones */}
       <Row className="mt-4">
-        <Col className="d-flex justify-content-end gap-2">
-          <Button 
-            variant="secondary" 
-            onClick={onCancelar}
-            disabled={loading}
-          >
-            Cancelar
-          </Button>
-          <Button 
-            type="submit" 
-            disabled={loading || uploading}
-            style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}
-          >
-            {loading ? 'Guardando...' : (producto ? 'Actualizar' : 'Crear Producto')}
-          </Button>
+        <Col className="d-flex justify-content-between align-items-center">
+          {/* Botón de receta (solo para productos existentes) */}
+          {producto && producto.id && (
+            <Button
+              variant="outline-success"
+              onClick={() => {
+                setRecetaActual(producto.receta || null);
+                setShowRecetaModal(true);
+              }}
+            >
+              <i className="bi bi-book me-2"></i>
+              {producto.receta ? 'Editar Receta' : 'Crear Receta'}
+            </Button>
+          )}
+          
+          <div className="d-flex gap-2 ms-auto">
+            <Button 
+              variant="secondary" 
+              onClick={onCancelar}
+              disabled={loading}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              type="submit" 
+              disabled={loading || uploading}
+              style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}
+            >
+              {loading ? 'Guardando...' : (producto ? 'Actualizar' : 'Crear Producto')}
+            </Button>
+          </div>
         </Col>
       </Row>
+
+      {/* Modal de Receta */}
+      <Modal show={showRecetaModal} onHide={() => setShowRecetaModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Gestionar Receta</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <RecetaForm
+            productoId={producto?.id}
+            productoNombre={producto?.nombre || ''}
+            receta={recetaActual}
+            onGuardar={(result) => {
+              setShowRecetaModal(false);
+              toast.success('Receta guardada correctamente');
+              // Recargar producto para actualizar receta
+              if (onGuardar) {
+                onGuardar(result);
+              }
+            }}
+            onCancelar={() => setShowRecetaModal(false)}
+          />
+        </Modal.Body>
+      </Modal>
     </Form>
   );
 };

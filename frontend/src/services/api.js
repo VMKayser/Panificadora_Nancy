@@ -641,6 +641,34 @@ export const admin = {
     const response = await api.delete(`/admin/usuarios/${id}`);
     return response.data;
   },
+
+  // ============================================
+  // ADMIN - RECETAS
+  // ============================================
+  getRecetas: async (params = {}) => {
+    const response = await api.get('/admin/recetas', { params });
+    return response.data;
+  },
+
+  getReceta: async (id) => {
+    const response = await api.get(`/admin/recetas/${id}`);
+    return response.data;
+  },
+
+  crearReceta: async (data) => {
+    const response = await api.post('/admin/recetas', data);
+    return response.data;
+  },
+
+  actualizarReceta: async (id, data) => {
+    const response = await api.put(`/admin/recetas/${id}`, data);
+    return response.data;
+  },
+
+  eliminarReceta: async (id) => {
+    const response = await api.delete(`/admin/recetas/${id}`);
+    return response.data;
+  },
 };
 
 export default api;
