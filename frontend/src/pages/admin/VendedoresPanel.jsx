@@ -119,8 +119,10 @@ export default function VendedoresPanel() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const payload = { ...form };
-      if (!payload.observaciones) delete payload.observaciones;
+      const payload = { 
+        ...form,
+        observaciones: form.observaciones?.trim() || null
+      };
       if (editing) {
         await admin.actualizarVendedor(editing.id, payload);
       } else {

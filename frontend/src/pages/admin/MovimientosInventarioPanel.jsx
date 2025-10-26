@@ -724,7 +724,7 @@ export default function MovimientosInventarioPanel() {
                     cantidad_producida: line.cantidad_producida,
                     unidad: line.unidad || produccionForm.unidad || 'unidades',
                     panadero_id: line.panadero_id || produccionForm.panadero_id,
-                    observaciones: line.observaciones || formData.observaciones || 'Reintento desde Movimientos - multi'
+                    observaciones: (line.observaciones || formData.observaciones)?.trim() || null
                   };
                   try {
                     const res = await crearProduccion(payload);

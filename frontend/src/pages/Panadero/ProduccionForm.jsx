@@ -65,7 +65,7 @@ export default function ProduccionForm() {
         cantidad_producida: Number(form.cantidad_producida),
         unidad: form.unidad,
         harina_real_usada: Number(form.harina_real_usada),
-        observaciones: form.observaciones || null
+        observaciones: form.observaciones?.trim() || null
       };
 
       const res = await api.post('/producciones', payload);

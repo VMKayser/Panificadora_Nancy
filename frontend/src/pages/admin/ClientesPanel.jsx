@@ -133,10 +133,9 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           nombre: nombre || 'Sin nombre',
           apellido: apellidoParts.join(' ') || '',
           email: roleChangeData.userEmail,
-          ...extraData
+          ...extraData,
+          observaciones: extraData.observaciones?.trim() || null
         };
-        // Omitir observaciones si está vacío para no forzar campo en backend
-        if (!payload.observaciones) delete payload.observaciones;
         try {
           await admin.crearPanadero(payload);
         } catch (err) {
@@ -154,10 +153,9 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           nombre: nombre || 'Sin nombre',
           apellido: apellidoParts.join(' ') || '',
           email: roleChangeData.userEmail,
-          ...extraData
+          ...extraData,
+          observaciones: extraData.observaciones?.trim() || null
         };
-        // Omitir observaciones si está vacío
-        if (!payload.observaciones) delete payload.observaciones;
         try {
           await admin.crearVendedor(payload);
         } catch (err) {

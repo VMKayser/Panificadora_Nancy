@@ -186,7 +186,7 @@ class PanaderoController extends Controller
             'salario_base' => 'sometimes|required|numeric|min:0',
             'salario_por_kilo' => 'sometimes|numeric|min:0',
             'activo' => 'sometimes|boolean',
-            'observaciones' => 'string'
+            'observaciones' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {
