@@ -53,7 +53,7 @@ class RegistroCompraProduccionFlowTest extends TestCase
         // 4) Crear producto y receta que consuma esa materia prima
         $producto = Producto::factory()->create();
         $receta = Receta::factory()->create(['producto_id' => $producto->id, 'rendimiento' => 10]);
-        $receta->ingredientes()->create(['materia_prima_id' => $mp->id, 'cantidad' => 5]);
+        $receta->ingredientes()->create(['materia_prima_id' => $mp->id, 'cantidad' => 5, 'unidad' => 'kg']);
 
     InventarioProductoFinal::query()->updateOrInsert(['producto_id' => $producto->id], ['stock_actual' => 0, 'costo_promedio' => 0]);
 

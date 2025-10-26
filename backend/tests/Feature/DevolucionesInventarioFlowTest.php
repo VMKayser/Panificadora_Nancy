@@ -21,7 +21,7 @@ class DevolucionesInventarioFlowTest extends TestCase
         // Create producto + receta that uses 5 units of azucar per 10 produced
         $producto = Producto::factory()->create();
         $receta = Receta::factory()->create(['producto_id' => $producto->id, 'rendimiento' => 10]);
-        $receta->ingredientes()->create(['materia_prima_id' => $azucar->id, 'cantidad' => 5]);
+        $receta->ingredientes()->create(['materia_prima_id' => $azucar->id, 'cantidad' => 5, 'unidad' => 'kg']);
 
     // Ensure product inventory exists
     InventarioProductoFinal::query()->updateOrInsert(['producto_id' => $producto->id], ['stock_actual' => 0, 'costo_promedio' => 0]);

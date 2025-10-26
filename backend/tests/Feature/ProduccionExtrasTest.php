@@ -25,8 +25,8 @@ class ProduccionExtrasTest extends TestCase
         $receta = Receta::factory()->create(['producto_id' => $producto->id, 'rendimiento' => 10]);
 
         // Attach receta ingredientes (harina 10, azucar 5) - factories may differ; insert directly for clarity
-        $receta->ingredientes()->create(['materia_prima_id' => $harina->id, 'cantidad' => 10]);
-        $receta->ingredientes()->create(['materia_prima_id' => $azucar->id, 'cantidad' => 5]);
+        $receta->ingredientes()->create(['materia_prima_id' => $harina->id, 'cantidad' => 10, 'unidad' => 'kg']);
+        $receta->ingredientes()->create(['materia_prima_id' => $azucar->id, 'cantidad' => 5, 'unidad' => 'kg']);
 
     // Ensure inventario for producto exists
     InventarioProductoFinal::query()->updateOrInsert(['producto_id' => $producto->id], ['stock_actual' => 0, 'costo_promedio' => 0]);

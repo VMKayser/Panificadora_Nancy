@@ -32,6 +32,7 @@ class ProduccionAggregationTest extends TestCase
             'receta_id' => $receta->id,
             'materia_prima_id' => $mp->id,
             'cantidad' => 8.0,
+            'unidad' => 'kg',
         ]);
 
         // Crear producción que produce 1 (factor 1)
