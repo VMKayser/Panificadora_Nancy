@@ -22,14 +22,21 @@ class PedidoObserver
         // (venta mostrador suele crearse como 'entregado', pero algunos flujos pueden crear como 'confirmado')
         if (in_array($pedido->estado, ['entregado', 'confirmado'])) {
             // Evitar descontar si no hay detalles aún (muchos flujos crean pedido y luego detalles)
-            if ($pedido->detalles()->exists()) {
+            // o si ya se descargó el stock
+            if ($pedido->detalles()->exists() && !$pedido->stock_descargado) {
                 $service = new InventarioService();
-                $service->descontarInventario($pedido);
+                // Usar useTransaction=false porque ya estamos en un observer dentro de una transacción
+                $service->descontarInventario($pedido, false);
             } else {
-                Log::info("Omitido descontar inventario en created() para pedido {$pedido->id} (sin detalles aún)");
+                Log::info("Omitido descontar inventario en created() para pedido {$pedido->id} (sin detalles o ya descargado)");
             }
+        }
+        
         // Invalidate dashboard cache (short-lived cache) to reflect new pedido
-        try { Cache::forget('inventario.dashboard'); } catch (\Exception $e) { Log::warning('No se pudo invalidar cache inventario.dashboard: '.$e->getMessage()); }
+        try { 
+            Cache::forget('inventario.dashboard'); 
+        } catch (\Exception $e) { 
+            Log::warning('No se pudo invalidar cache inventario.dashboard: '.$e->getMessage()); 
         }
     }
 
@@ -42,13 +49,17 @@ class PedidoObserver
         // Solo descontar si el estado cambió a un estado que representa venta: 'entregado' o 'confirmado'
         if ($pedido->isDirty('estado') && in_array($pedido->estado, ['entregado', 'confirmado'])) {
             // Verificar si ya se descontó inventario para este pedido
-            $yaDescontado = MovimientoProductoFinal::where('pedido_id', $pedido->id)
-                ->where('tipo_movimiento', 'venta')
-                ->exists();
+            // usando el flag stock_descargado o verificando movimientos existentes
+            if (!$pedido->stock_descargado) {
+                $yaDescontado = MovimientoProductoFinal::where('pedido_id', $pedido->id)
+                    ->where('tipo_movimiento', 'salida_venta')
+                    ->exists();
 
-            if (!$yaDescontado) {
-                $service = new InventarioService();
-                $service->descontarInventario($pedido);
+                if (!$yaDescontado) {
+                    $service = new InventarioService();
+                    // Usar useTransaction=false porque ya estamos en un observer dentro de una transacción
+                    $service->descontarInventario($pedido, false);
+                }
             }
         }
 

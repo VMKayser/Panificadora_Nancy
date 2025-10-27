@@ -28,6 +28,8 @@ class Pedido extends Model
         'notas_cancelacion',
         'subtotal',
         'descuento',
+        'descuento_bs',
+        'motivo_descuento',
         'total',
         'metodos_pago_id',
         'codigo_promocional',
