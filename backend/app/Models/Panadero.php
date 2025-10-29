@@ -76,9 +76,32 @@ class Panadero extends Model
 
     public function actualizarEstadisticas()
     {
-        $this->total_kilos_producidos = $this->producciones()->sum('cantidad_kg');
+        // Calcular kilos pagables por producción: max(0, cantidad_kg - harina_real_usada)
+        $producciones = $this->producciones()->get();
+
+        $total_kilos = 0.0;
+        foreach ($producciones as $p) {
+            $cantidad_kg = floatval($p->cantidad_kg ?? 0);
+            $harina_usada = floatval($p->harina_real_usada ?? 0);
+            $kilos_pagables = max(0.0, $cantidad_kg - $harina_usada);
+
+            // Log para trazabilidad por producción
+            try {
+                \Illuminate\Support\Facades\Log::info('Panadero::actualizarEstadisticas - produccion', [
+                    'panadero_id' => $this->id,
+                    'produccion_id' => $p->id,
+                    'cantidad_kg' => $cantidad_kg,
+                    'harina_real_usada' => $harina_usada,
+                    'kilos_pagables' => $kilos_pagables,
+                ]);
+            } catch (\Throwable $_e) { /* ignore logging failures */ }
+
+            $total_kilos += $kilos_pagables;
+        }
+
+        $this->total_kilos_producidos = $total_kilos;
         $this->total_unidades_producidas = $this->producciones()->sum('cantidad_unidades');
-        $this->ultima_produccion = $this->producciones()->latest('fecha_produccion')->first()?->fecha_produccion;
+        $this->ultima_produccion = $producciones->sortByDesc('fecha_produccion')->first()?->fecha_produccion;
         $this->save();
     }
 
