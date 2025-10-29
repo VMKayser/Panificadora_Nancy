@@ -56,7 +56,8 @@ class PanaderoEstadisticasTest extends TestCase
 
         $panadero->refresh();
 
-        $this->assertEqualsWithDelta(13.0, (float)$panadero->total_kilos_producidos, 0.001);
+    // Ahora el total de kilos pagables se basa en harina_real_usada: 2 + 0 = 2
+    $this->assertEqualsWithDelta(2.0, (float)$panadero->total_kilos_harina_pagables, 0.001);
         $this->assertEqualsWithDelta(0.0, (float)$panadero->total_unidades_producidas, 0.001);
         $this->assertNotNull($panadero->ultima_produccion);
     }
@@ -85,6 +86,6 @@ class PanaderoEstadisticasTest extends TestCase
         $panadero->actualizarEstadisticas();
         $panadero->refresh();
 
-        $this->assertEqualsWithDelta(0.0, (float)$panadero->total_kilos_producidos, 0.001);
+    $this->assertEqualsWithDelta(5.0, (float)$panadero->total_kilos_harina_pagables, 0.001);
     }
 }
