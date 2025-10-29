@@ -1,0 +1,27 @@
+{
+  "pedidos_hoy": 24,
+  "ingresos_hoy": 4850.50,
+  "produccion_hoy": 420,
+  "stock_bajo": 5,
+  "panaderos": [
+    { "id": 1, "nombre": "Carlos", "produccion": 140 },
+    { "id": 2, "nombre": "María", "produccion": 120 },
+    { "id": 3, "nombre": "Luis", "produccion": 90 },
+    { "id": 4, "nombre": "Ana", "produccion": 70 }
+  ],
+  "productos": [
+    { "id": 10, "nombre": "Pan de Avena", "ventas": 80, "profit": 320.5 },
+    { "id": 11, "nombre": "Medialunas", "ventas": 150, "profit": 560.0 },
+    { "id": 12, "nombre": "Baguette", "ventas": 200, "profit": 400.0 },
+    { "id": 13, "nombre": "Pan Integral", "ventas": 60, "profit": 240.0 }
+  ],
+  "ventas_por_temporada": [
+    { "fecha": "2025-10-14", "ventas": 320 },
+    { "fecha": "2025-10-15", "ventas": 410 },
+    { "fecha": "2025-10-16", "ventas": 380 },
+    { "fecha": "2025-10-17", "ventas": 450 },
+    { "fecha": "2025-10-18", "ventas": 500 },
+    { "fecha": "2025-10-19", "ventas": 470 },
+    { "fecha": "2025-10-20", "ventas": 485 }
+  ]
+}

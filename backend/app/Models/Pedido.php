@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Pedido extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
 
     protected $table = 'pedidos';
     
@@ -27,6 +28,8 @@ class Pedido extends Model
         'notas_cancelacion',
         'subtotal',
         'descuento',
+        'descuento_bs',
+        'motivo_descuento',
         'total',
         'metodos_pago_id',
         'codigo_promocional',
@@ -37,6 +40,8 @@ class Pedido extends Model
         'fecha_entrega',
         'hora_entrega',
         'fecha_pago',
+        'envio_por_pagar',
+        'empresa_transporte',
         'stock_descargado',
     ];
 

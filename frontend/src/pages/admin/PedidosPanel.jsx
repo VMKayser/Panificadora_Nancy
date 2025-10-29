@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
 import PedidoDetailModal from '../../components/admin/PedidoDetailModal';
+import { Pagination } from 'react-bootstrap';
 
 const PedidosPanel = () => {
   const [pedidos, setPedidos] = useState([]);
@@ -9,6 +10,11 @@ const PedidosPanel = () => {
   const [stats, setStats] = useState(null);
   const [selectedPedido, setSelectedPedido] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  
+  // Paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [perPage] = useState(20);
   
   // Filtros
   const [filtros, setFiltros] = useState({
@@ -21,8 +27,12 @@ const PedidosPanel = () => {
 
   // Cargar pedidos y estadísticas
   useEffect(() => {
-    cargarDatos();
+    setCurrentPage(1); // Reset page when filters change
   }, [filtros]);
+
+  useEffect(() => {
+    cargarDatos();
+  }, [currentPage, filtros]);
 
   const cargarDatos = async () => {
     try {
@@ -34,9 +44,18 @@ const PedidosPanel = () => {
         return acc;
       }, {});
       
+      // Agregar paginación
+      filtrosLimpios.per_page = perPage;
+      filtrosLimpios.page = currentPage;
+      
       // Cargar solo pedidos primero, stats de forma optimista
       const pedidosData = await admin.getPedidos(filtrosLimpios);
       setPedidos(pedidosData.data || []);
+      
+      // Actualizar información de paginación
+      if (pedidosData.last_page) {
+        setTotalPages(pedidosData.last_page);
+      }
       
       // Cargar stats después (no bloqueante)
       admin.getPedidosStats(filtrosLimpios)
@@ -277,8 +296,16 @@ const PedidosPanel = () => {
               <p>No hay pedidos que mostrar</p>
             </div>
           ) : (
-            <div className="table-responsive">
-              <table className="table table-hover align-middle">
+            <>
+              {totalPages > 1 && (
+                <div className="d-flex justify-content-end mb-2">
+                  <small className="text-muted">
+                    Página {currentPage} de {totalPages} | Mostrando {pedidos.length} pedidos
+                  </small>
+                </div>
+              )}
+              <div className="table-responsive">
+                <table className="table table-hover align-middle">
                 <thead className="table-light">
                   <tr>
                     <th>Nº Pedido</th>
@@ -343,6 +370,42 @@ const PedidosPanel = () => {
                 </tbody>
               </table>
             </div>
+            
+            {/* Controles de Paginación */}
+            {totalPages > 1 && (
+              <div className="d-flex justify-content-center mt-4">
+                <Pagination>
+                  <Pagination.First onClick={() => setCurrentPage(1)} disabled={currentPage === 1} />
+                  <Pagination.Prev onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1} />
+                  
+                  {[...Array(totalPages)].map((_, idx) => {
+                    const page = idx + 1;
+                    if (
+                      page === 1 ||
+                      page === totalPages ||
+                      (page >= currentPage - 1 && page <= currentPage + 1)
+                    ) {
+                      return (
+                        <Pagination.Item
+                          key={page}
+                          active={page === currentPage}
+                          onClick={() => setCurrentPage(page)}
+                        >
+                          {page}
+                        </Pagination.Item>
+                      );
+                    } else if (page === currentPage - 2 || page === currentPage + 2) {
+                      return <Pagination.Ellipsis key={page} disabled />;
+                    }
+                    return null;
+                  })}
+                  
+                  <Pagination.Next onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages} />
+                  <Pagination.Last onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} />
+                </Pagination>
+              </div>
+            )}
+          </>
           )}
         </div>
       </div>

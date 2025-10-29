@@ -119,10 +119,14 @@ export default function VendedoresPanel() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const payload = { 
+        ...form,
+        observaciones: form.observaciones?.trim() || null
+      };
       if (editing) {
-        await admin.actualizarVendedor(editing.id, form);
+        await admin.actualizarVendedor(editing.id, payload);
       } else {
-        await admin.crearVendedor(form);
+        await admin.crearVendedor(payload);
       }
       setShowModal(false);
       cargarDatos();

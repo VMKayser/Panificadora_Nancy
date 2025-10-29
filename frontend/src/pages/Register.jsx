@@ -1,19 +1,26 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { auth as authApi } from '../services/api';
 import { toast } from 'react-toastify';
 
 export default function Register() {
   const navigate = useNavigate();
   const { register } = useAuth();
   const [formData, setFormData] = useState({
-    name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     phone: '',
     password: '',
     password_confirmation: '',
   });
   const [loading, setLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
 
   const handleChange = (e) => {
     setFormData({
@@ -33,13 +40,25 @@ export default function Register() {
     setLoading(true);
 
     try {
-      const result = await register(formData);
+      // Compose the full 'name' field expected by the backend from the two inputs
+      const payload = {
+        ...formData,
+        name: `${formData.first_name} ${formData.last_name}`.trim(),
+      };
+      // backend expects 'name' (full name); remove helper fields to keep payload clean
+      delete payload.first_name;
+      delete payload.last_name;
+
+      const result = await register(payload);
       
       if (result.success) {
-        // Si el backend solicita verificación por correo, mostrar mensaje adecuado
+        // Si el backend solicita verificación por correo, mostrar pantalla de 'Revisa tu correo'
         if (result.message) {
+          setVerificationMessage(result.message);
+          // Guardar el email que se usó para el registro para mostrarlo en la UI
+          setRegisteredEmail(payload.email || formData.email || '');
+          setRegistered(true);
           toast.info(result.message);
-          navigate('/login');
         } else {
           toast.success('¡Registro exitoso! Bienvenido');
           navigate('/');
@@ -69,23 +88,63 @@ export default function Register() {
                   <p className="text-muted">Crea tu cuenta</p>
                 </div>
 
-                <form onSubmit={handleSubmit}>
-                  {/* Nombre */}
-                  <div className="mb-3">
-                    <label htmlFor="name" className="form-label fw-semibold">
-                      Nombre completo
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      id="name"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleChange}
-                      required
-                      placeholder="Juan Pérez"
-                      style={{ borderColor: '#8b6f47' }}
-                    />
+                {registered ? (
+                  <div className="text-center">
+                    <h5>Revisa tu correo</h5>
+                    <p className="text-muted">{verificationMessage || 'Te hemos enviado un correo con un enlace para verificar tu cuenta.'}</p>
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary mb-2"
+                      onClick={async () => {
+                        try {
+                          setLoading(true);
+                          const resp = await authApi.resendVerification(formData.email);
+                          toast.success(resp.message || 'Correo reenviado');
+                        } catch (e) {
+                          toast.error(e.response?.data?.message || 'Error al reenviar verificación');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                    >
+                      Reenviar correo de verificación
+                    </button>
+                    <div className="mt-3">
+                      <Link to="/login" className="text-muted">Ir a iniciar sesión</Link>
+                    </div>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmit}>
+                  {/* Nombre y Apellido (campos separados) */}
+                  <div className="row g-2 mb-3">
+                    <div className="col">
+                      <label htmlFor="first_name" className="form-label fw-semibold">Nombre</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        id="first_name"
+                        name="first_name"
+                        value={formData.first_name}
+                        onChange={handleChange}
+                        required
+                        placeholder="Juan"
+                        style={{ borderColor: '#8b6f47' }}
+                      />
+                    </div>
+                    <div className="col">
+                      <label htmlFor="last_name" className="form-label fw-semibold">Apellido</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        id="last_name"
+                        name="last_name"
+                        value={formData.last_name}
+                        onChange={handleChange}
+                        required
+                        placeholder="Pérez"
+                        style={{ borderColor: '#8b6f47' }}
+                      />
+                    </div>
                   </div>
 
                   {/* Email */}
@@ -128,18 +187,28 @@ export default function Register() {
                     <label htmlFor="password" className="form-label fw-semibold">
                       Contraseña
                     </label>
-                    <input
-                      type="password"
-                      className="form-control"
-                      id="password"
-                      name="password"
-                      value={formData.password}
-                      onChange={handleChange}
-                      required
-                      minLength="6"
-                      placeholder="Mínimo 6 caracteres"
-                      style={{ borderColor: '#8b6f47' }}
-                    />
+                    <div className="input-group">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        className="form-control"
+                        id="password"
+                        name="password"
+                        value={formData.password}
+                        onChange={handleChange}
+                        required
+                        minLength="6"
+                        placeholder="Mínimo 6 caracteres"
+                        style={{ borderColor: '#8b6f47' }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary"
+                        onClick={() => setShowPassword(s => !s)}
+                        aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      >
+                        {showPassword ? 'Ocultar' : 'Mostrar'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Confirm Password */}
@@ -147,18 +216,28 @@ export default function Register() {
                     <label htmlFor="password_confirmation" className="form-label fw-semibold">
                       Confirmar contraseña
                     </label>
-                    <input
-                      type="password"
-                      className="form-control"
-                      id="password_confirmation"
-                      name="password_confirmation"
-                      value={formData.password_confirmation}
-                      onChange={handleChange}
-                      required
-                      minLength="6"
-                      placeholder="Repite tu contraseña"
-                      style={{ borderColor: '#8b6f47' }}
-                    />
+                    <div className="input-group">
+                      <input
+                        type={showPasswordConfirm ? 'text' : 'password'}
+                        className="form-control"
+                        id="password_confirmation"
+                        name="password_confirmation"
+                        value={formData.password_confirmation}
+                        onChange={handleChange}
+                        required
+                        minLength="6"
+                        placeholder="Repite tu contraseña"
+                        style={{ borderColor: '#8b6f47' }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary"
+                        onClick={() => setShowPasswordConfirm(s => !s)}
+                        aria-label={showPasswordConfirm ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                      >
+                        {showPasswordConfirm ? 'Ocultar' : 'Mostrar'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Botón Submit */}
@@ -195,6 +274,7 @@ export default function Register() {
                     </Link>
                   </div>
                 </form>
+                )}
               </div>
             </div>
           </div>

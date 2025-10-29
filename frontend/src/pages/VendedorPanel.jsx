@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import useDebounce from '../hooks/useDebounce';
 import { Container, Row, Col, Card, Button, Table, Form, InputGroup, Badge, Modal, ListGroup } from 'react-bootstrap';
-import { admin, getProductos, getMetodosPago } from '../services/api';
+import { admin, getProductos, getMetodosPagoCached as getMetodosPago } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
 
@@ -464,8 +465,10 @@ export default function VendedorPanel() {
     }, 250);
   };
 
+  const debouncedSearch = useDebounce(searchTerm, 300);
+
   const productosFiltrados = productos.filter(p => {
-    const matchSearch = p.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchSearch = p.nombre.toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchCategoria = !categoriaFilter || p.categorias_id == categoriaFilter;
     return matchSearch && matchCategoria;
   });
@@ -534,18 +537,22 @@ export default function VendedorPanel() {
                           onClick={() => { if (!isOutOfStock) handleProductoClick(producto); }}
                         >
                           <Card.Img
-                            variant="top"
-                            src={
-                              producto.imagenes?.[0]?.url_imagen_completa 
-                                || producto.imagenes?.[0]?.url_imagen 
-                                || 'https://via.placeholder.com/150?text=Sin+Imagen'
-                            }
-                            style={{ height: '120px', objectFit: 'cover' }}
-                            onError={(e) => {
-                              e.target.onerror = null;
-                              e.target.src = 'https://via.placeholder.com/150?text=Sin+Imagen';
-                            }}
-                          />
+                              variant="top"
+                              src={
+                                producto.imagenes?.[0]?.url_imagen_completa 
+                                  || producto.imagenes?.[0]?.url_imagen 
+                                  || 'https://via.placeholder.com/150?text=Sin+Imagen'
+                              }
+                              srcSet={producto.imagenes?.[0] ? `${producto.imagenes[0].url_imagen || producto.imagenes[0].url_imagen_completa || ''} 300w, ${producto.imagenes[0].url_imagen_completa || producto.imagenes[0].url_imagen || ''} 800w` : undefined}
+                              sizes="(max-width: 768px) 45vw, 150px"
+                              loading="lazy"
+                              decoding="async"
+                              style={{ height: '120px', objectFit: 'cover' }}
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = 'https://via.placeholder.com/150?text=Sin+Imagen';
+                              }}
+                            />
                           <Card.Body className="p-2">
                             <div className="d-flex justify-content-between align-items-start">
                               <Card.Title style={{ fontSize: '0.9rem' }} className="mb-1">

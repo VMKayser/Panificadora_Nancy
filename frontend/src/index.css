@@ -111,3 +111,120 @@ body {
     border-radius: 12px;
   }
 }
+
+/* Navbar responsive helpers */
+.navbar .nav {
+  gap: 0.5rem;
+}
+
+/* Prevent nav items from wrapping. On small screens allow horizontal scroll; on
+   larger screens keep overflow visible so dropdowns can become overlays. */
+.navbar .navbar-collapse .nav {
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Horizontal scroll only on narrow viewports (mobile). This prevents parent
+   overflow from forcing Bootstrap dropdowns into "static" mode on desktop. */
+@media (max-width: 991.98px) {
+  .navbar .navbar-collapse .nav {
+    overflow-x: auto;
+  }
+}
+
+@media (min-width: 992px) {
+  .navbar .navbar-collapse .nav {
+    overflow-x: visible !important;
+  }
+}
+
+/* Keep the toggler above other elements (cart badge etc.) */
+.navbar .navbar-toggler {
+  z-index: 1060;
+}
+
+/* Ensure dropdown menus render above other content (fixes menu appearing behind page content) */
+.navbar .navbar-collapse {
+  /* Allow dropdowns to overflow the collapse container */
+  overflow: visible !important;
+}
+
+/* Force dropdown menus to a high stacking order so they appear on top */
+.dropdown-menu {
+  z-index: 20000 !important;
+}
+
+/* Anchor the navbar so absolutely-positioned dropdowns are positioned correctly
+   and don't push / re-flow the navbar content when opened. This ensures the
+   admin/user dropdown behaves as an overlay instead of creating a new bar. */
+.navbar {
+  position: relative;
+  z-index: 1100; /* slightly above default page flow */
+}
+
+/* Make dropdown menus in the navbar render as overlays instead of static
+   content that affects layout. Use !important to override bootstrap's
+   position:static rule for collapsed nav on some breakpoints. */
+.navbar .navbar-nav .dropdown-menu {
+  position: absolute !important;
+}
+
+/* Force the show/hide password button to visually align with the input like
+   in the Register page. These rules make the button flush with the input
+   and prevent subtle radius mismatches caused by inline styles. */
+.input-group .btn {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.input-group .form-control {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* More specific overrides to ensure dropdowns are overlays and don't change
+   document flow (prevents creating scrollbars when opening the menu). We set
+   the parent nav-item to positioned so menus can position relative to toggle,
+   cap max-height and allow internal scrolling inside the dropdown if needed. */
+.navbar .nav-item {
+  position: relative; /* anchor for absolutely-positioned dropdowns */
+}
+
+.navbar .nav-item .dropdown-menu {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: 0 !important;
+  min-width: 10rem;
+  max-height: 60vh; /* avoid creating large page scroll; allow internal scroll */
+  overflow: auto;
+  white-space: nowrap; /* keep items in single line where possible */
+  box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+}
+
+/* On very small screens we still want the dropdown usable - allow it to be
+   full width but remain positioned as overlay so it doesn't push the navbar. */
+@media (max-width: 575.98px) {
+  .navbar .nav-item .dropdown-menu {
+    left: 0 !important;
+    right: 0 !important;
+    min-width: auto;
+    width: calc(100% - 1rem);
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    max-height: 55vh;
+  }
+}
+
+/* Make brand text truncate instead of pushing toggle off-screen */
+.navbar .navbar-brand {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+@media (max-width: 576px) {
+  .navbar .navbar-brand {
+    max-width: 50%;
+  }
+}

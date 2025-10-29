@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Auth\Events\Registered;
 
 class AuthController extends Controller
 {
@@ -38,52 +39,56 @@ class AuthController extends Controller
         ]);
 
         try {
-            DB::beginTransaction();
-
-            // Crear usuario
-            $user = User::create([
-                'name' => $validated['name'],
-                'email' => $validated['email'],
-                'password' => Hash::make($validated['password']),
-                'phone' => $validated['phone'] ?? null,
-                'is_active' => true,
-            ]);
-
-            // Asignar rol de cliente por defecto
-            $clienteRole = Role::where('name', 'cliente')->first();
-            if ($clienteRole) {
-                $user->roles()->attach($clienteRole->id);
-            }
-
-            // Crear registro en tabla clientes (solo si no existe)
-            // Separar nombre y apellido (simple: primera palabra = nombre, resto = apellido)
-            $clienteExistente = Cliente::where('email', $validated['email'])->first();
-            
-            if (!$clienteExistente) {
-                $nombreCompleto = explode(' ', $validated['name'], 2);
-                $nombre = $nombreCompleto[0];
-                $apellido = $nombreCompleto[1] ?? '';
-
-                Cliente::create([
-                    'nombre' => $nombre,
-                    'apellido' => $apellido,
+            $user = DB::transaction(function () use ($validated) {
+                // Crear usuario
+                $user = User::create([
+                    'name' => $validated['name'],
                     'email' => $validated['email'],
-                    'telefono' => $validated['phone'] ?? null,
-                    'tipo_cliente' => 'regular', // Por defecto
-                    'activo' => true,
+                    'password' => Hash::make($validated['password']),
+                    'phone' => $validated['phone'] ?? null,
+                    'is_active' => true,
                 ]);
-            }
 
-            DB::commit();
+                // Asignar rol de cliente por defecto
+                $clienteRole = Role::where('name', 'cliente')->first();
+                if ($clienteRole) {
+                    $user->roles()->attach($clienteRole->id);
+                }
+
+                // Crear registro en tabla clientes (solo si no existe)
+                $clienteExistente = Cliente::where('email', $validated['email'])->first();
+                if (!$clienteExistente) {
+                    $nombreCompleto = explode(' ', $validated['name'], 2);
+                    $nombre = $nombreCompleto[0];
+                    $apellido = $nombreCompleto[1] ?? '';
+
+                    Cliente::create([
+                        'nombre' => $nombre,
+                        'apellido' => $apellido,
+                        'email' => $validated['email'],
+                        'telefono' => $validated['phone'] ?? null,
+                        'tipo_cliente' => 'regular', // Por defecto
+                        'activo' => true,
+                    ]);
+                }
+
+                return $user;
+            });
+
+            // Disparar notificación de verificación de email (Registered event)
+            try {
+                event(new Registered($user));
+            } catch (\Throwable $e) {
+                // Registrar el error pero no abortar el registro - el usuario ya fue creado
+                Log::warning('Error al disparar evento Registered: ' . $e->getMessage());
+            }
 
             return response()->json([
-                'message' => 'Usuario registrado exitosamente.',
+                'message' => 'Usuario registrado exitosamente. Se ha enviado un correo de verificación si el servidor de mail está configurado.',
                 'user' => $user->load('roles'),
             ], 201);
 
         } catch (\Exception $e) {
-            DB::rollBack();
-            
             return response()->json([
                 'message' => 'Error al registrar usuario',
                 'error' => $e->getMessage()
@@ -129,7 +134,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Login exitoso',
-            'user' => $user->load('roles'),
+            'user' => $user->load(['roles', 'cliente', 'panadero', 'vendedor']),
             'access_token' => $token,
             'token_type' => 'Bearer',
         ]);
@@ -140,7 +145,28 @@ class AuthController extends Controller
      */
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        // Safe-delete current access token. In some test contexts currentAccessToken()
+        // may return null (no token in the request). Guard against that to avoid
+        // "Call to a member function delete() on null" errors.
+        $user = $request->user();
+        if ($user) {
+            if (method_exists($user, 'currentAccessToken')) {
+                $token = $user->currentAccessToken();
+                if ($token) {
+                    $token->delete();
+                } else {
+                    // Fallback: delete all tokens for the user if current token not available
+                    if (method_exists($user, 'tokens')) {
+                        $user->tokens()->delete();
+                    }
+                }
+            } else {
+                // As a last resort, try tokens() if available
+                if (method_exists($user, 'tokens')) {
+                    $user->tokens()->delete();
+                }
+            }
+        }
 
         return response()->json([
             'message' => 'Logout exitoso'
@@ -153,7 +179,7 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         return response()->json([
-            'user' => $request->user()->load('roles')
+            'user' => $request->user()->load(['roles', 'cliente', 'panadero', 'vendedor'])
         ]);
     }
 

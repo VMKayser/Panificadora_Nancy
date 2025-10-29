@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import useDebounce from '../../hooks/useDebounce';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
 import {
@@ -32,10 +33,12 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
   const [showRoleChangeModal, setShowRoleChangeModal] = useState(false);
   const [roleChangeData, setRoleChangeData] = useState({ userId: null, newRole: '', userName: '', userEmail: '', extraData: {} });
 
+  const debouncedSearch = useDebounce(searchTerm, 350);
+
   useEffect(() => {
     cargarUsuarios();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, filtroActivo, filtroRol]);
+  }, [debouncedSearch, filtroActivo, filtroRol]);
 
   // Open create modal when parent header button toggles the signal (number > 0)
   useEffect(() => {
@@ -49,7 +52,7 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
     try {
       setLoading(true);
       const params = {};
-      if (searchTerm) params.buscar = searchTerm;
+  if (debouncedSearch) params.buscar = debouncedSearch;
       if (filtroActivo !== '') params.activo = filtroActivo;
       if (filtroRol) params.role = filtroRol;
       const data = await admin.getUsuarios(params);
@@ -130,7 +133,8 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           nombre: nombre || 'Sin nombre',
           apellido: apellidoParts.join(' ') || '',
           email: roleChangeData.userEmail,
-          ...extraData
+          ...extraData,
+          observaciones: extraData.observaciones?.trim() || null
         };
         try {
           await admin.crearPanadero(payload);
@@ -149,7 +153,8 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           nombre: nombre || 'Sin nombre',
           apellido: apellidoParts.join(' ') || '',
           email: roleChangeData.userEmail,
-          ...extraData
+          ...extraData,
+          observaciones: extraData.observaciones?.trim() || null
         };
         try {
           await admin.crearVendedor(payload);

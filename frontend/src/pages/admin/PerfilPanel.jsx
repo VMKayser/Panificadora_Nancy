@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Container, Row, Col, Card, Form, Button, Alert, Spinner, Badge, ListGroup, Tab, Tabs } from 'react-bootstrap';
+import { Container, Row, Col, Card, Form, Button, Alert, Spinner, Badge, ListGroup, Tab, Tabs, Image } from 'react-bootstrap';
 import { useAuth } from '../../context/AuthContext';
 import { auth as authApi, admin } from '../../services/api';
+import { configuracionService } from '../../services/empleadosService';
 import { toast } from 'react-toastify';
+import { useSiteConfig } from '../../context/SiteConfigContext';
 
 export default function PerfilPanel() {
   const { user, login } = useAuth();
@@ -16,6 +18,12 @@ export default function PerfilPanel() {
     email: '',
     phone: '',
   });
+
+  // Configuración del sistema: logo y QR
+  const [logoUrl, setLogoUrl] = useState('');
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [qrUrl, setQrUrl] = useState('');
+  const [qrUploading, setQrUploading] = useState(false);
 
   // Cambio de contraseña
   const [passwordData, setPasswordData] = useState({
@@ -40,8 +48,49 @@ export default function PerfilPanel() {
       if (hasRole('vendedor') || hasRole('panadero')) {
         loadRoleStats();
       }
+      // Cargar configuraciones globales (logo y QR)
+      loadSystemConfigs();
     }
   }, [user]);
+
+  const loadSystemConfigs = async () => {
+    try {
+      const logoResp = await configuracionService.getValue('logo_url').catch(() => null);
+      if (logoResp && logoResp.data && typeof logoResp.data.valor !== 'undefined') {
+        setLogoUrl(logoResp.data.valor || '');
+      } else if (logoResp && logoResp.valor) {
+        setLogoUrl(logoResp.valor || '');
+      }
+
+      const qrResp = await configuracionService.getValue('qr_pago_url').catch(() => null);
+      if (qrResp && qrResp.data && typeof qrResp.data.valor !== 'undefined') {
+        setQrUrl(qrResp.data.valor || '');
+      } else if (qrResp && qrResp.valor) {
+        setQrUrl(qrResp.valor || '');
+      }
+      // cargar whatsapp y plantilla de mensaje
+      const waResp = await configuracionService.getValue('whatsapp_empresa').catch(() => null);
+      if (waResp && waResp.data && typeof waResp.data.valor !== 'undefined') {
+        setWhatsappEmpresa(waResp.data.valor || '');
+      } else if (waResp && waResp.valor) {
+        setWhatsappEmpresa(waResp.valor || '');
+      }
+
+      const tplResp = await configuracionService.getValue('qr_mensaje_plantilla').catch(() => null);
+      if (tplResp && tplResp.data && typeof tplResp.data.valor !== 'undefined') {
+        setQrMensajePlantilla(tplResp.data.valor || '');
+      } else if (tplResp && tplResp.valor) {
+        setQrMensajePlantilla(tplResp.valor || '');
+      }
+    } catch (error) {
+      console.warn('No se pudieron cargar configuraciones del sistema:', error);
+    }
+  };
+
+  // Estados para whatsapp y plantilla (admin)
+  const [whatsappEmpresa, setWhatsappEmpresa] = useState('');
+  const [qrMensajePlantilla, setQrMensajePlantilla] = useState('');
+  const { refresh: refreshSiteConfig } = useSiteConfig();
 
   const hasRole = (roleName) => {
     return user?.roles?.some(role => role.name === roleName) || false;
@@ -188,7 +237,11 @@ export default function PerfilPanel() {
           <Card className="shadow-sm">
             <Card.Body className="text-center">
               <div className="mb-3">
-                <i className="bi bi-person-circle" style={{ fontSize: '5rem', color: '#8b6f47' }}></i>
+                {logoUrl ? (
+                  <Image src={logoUrl} rounded fluid loading="lazy" decoding="async" style={{ maxHeight: 120 }} alt="Logo empresa" />
+                ) : (
+                  <i className="bi bi-person-circle" style={{ fontSize: '5rem', color: '#8b6f47' }}></i>
+                )}
               </div>
               <h4>{user.name}</h4>
               <p className="text-muted">{user.email}</p>
@@ -290,6 +343,7 @@ export default function PerfilPanel() {
               </Card.Body>
             </Card>
           )}
+
         </Col>
 
         {/* Columna derecha - Formularios */}
@@ -517,6 +571,134 @@ export default function PerfilPanel() {
                         <Badge bg="success">Activo</Badge>
                       </ListGroup.Item>
                     </ListGroup>
+
+                    <hr />
+                    <h6 className="mt-3">Branding</h6>
+                    <p className="text-muted small">Sube el logo de la empresa y (opcional) el QR de pago. El QR será visible/gestionable solo para administradores.</p>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Logo de la Empresa</Form.Label>
+                      <div className="d-flex align-items-center gap-3">
+                        {logoUrl ? (
+                          <img src={logoUrl} alt="Logo" loading="lazy" decoding="async" style={{ maxHeight: 80 }} />
+                        ) : (
+                          <div className="text-muted">No hay logo configurado</div>
+                        )}
+                        <div>
+                          <Form.Control type="file" accept="image/*" onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setLogoUploading(true);
+                            try {
+                              const res = await admin.uploadImage(file);
+                              const url = res.url || res.data?.url || res.path || '';
+                              // Guardar en configuraciones
+                              await configuracionService.save({ clave: 'logo_url', valor: url, tipo: 'texto' });
+                              setLogoUrl(url);
+                              // Refresh global site config so header/footer update immediately
+                              try { refreshSiteConfig(); } catch (e) { /* ignore */ }
+                              // Notify other tabs/clients to refresh site config and increment version
+                              try {
+                                const ver = Date.now().toString();
+                                localStorage.setItem('site_config_version', ver);
+                                localStorage.setItem('site_config_update', ver);
+                              } catch (e) { /* ignore */ }
+                              toast.success('Logo subido exitosamente');
+                            } catch (err) {
+                              console.error('Error subiendo logo', err);
+                              toast.error('Error al subir logo');
+                            } finally { setLogoUploading(false); }
+                          }} />
+                        </div>
+                      </div>
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>QR de Pago (solo admin)</Form.Label>
+                      <div className="d-flex align-items-center gap-3">
+                        {qrUrl ? (
+                          <img src={qrUrl} alt="QR Pago" loading="lazy" decoding="async" style={{ maxHeight: 120 }} />
+                        ) : (
+                          <div className="text-muted">No hay QR configurado</div>
+                        )}
+                        <div>
+                          <Form.Control type="file" accept="image/*" onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setQrUploading(true);
+                            try {
+                              const res = await admin.uploadImage(file);
+                              const url = res.url || res.data?.url || res.path || '';
+                              await configuracionService.save({ clave: 'qr_pago_url', valor: url, tipo: 'texto' });
+                              setQrUrl(url);
+                              try { refreshSiteConfig(); } catch (e) { /* ignore */ }
+                              try {
+                                const ver = Date.now().toString();
+                                localStorage.setItem('site_config_version', ver);
+                                localStorage.setItem('site_config_update', ver);
+                              } catch (e) { /* ignore */ }
+                              toast.success('QR subido exitosamente');
+                            } catch (err) {
+                              console.error('Error subiendo QR', err);
+                              toast.error('Error al subir QR');
+                            } finally { setQrUploading(false); }
+                          }} />
+                        </div>
+                        {qrUrl && (
+                          <Button variant="outline-danger" size="sm" onClick={async () => {
+                            try {
+                              await configuracionService.delete('qr_pago_url');
+                              setQrUrl('');
+                              try { refreshSiteConfig(); } catch (e) { /* ignore */ }
+                              try {
+                                const ver = Date.now().toString();
+                                localStorage.setItem('site_config_version', ver);
+                                localStorage.setItem('site_config_update', ver);
+                              } catch (e) { /* ignore */ }
+                              toast.success('QR eliminado');
+                            } catch (err) {
+                              console.error('Error eliminando QR', err);
+                              toast.error('Error al eliminar QR');
+                            }
+                          }}>Eliminar QR</Button>
+                        )}
+                      </div>
+                    </Form.Group>
+
+                    <hr />
+                    <h6 className="mt-3">Comunicaciones</h6>
+                    <Form.Group className="mb-3">
+                      <Form.Label>Número de WhatsApp para comprobantes</Form.Label>
+                      <Form.Control
+                        type="text"
+                        value={whatsappEmpresa}
+                        onChange={(e) => setWhatsappEmpresa(e.target.value)}
+                        placeholder="Ej. +59176490687"
+                      />
+                      <Form.Text className="text-muted">Número que se usará en el mensaje que se copia al cliente.</Form.Text>
+                      <div className="mt-2">
+                        <Button size="sm" variant="primary" onClick={async () => {
+                          try {
+                            await configuracionService.save({ clave: 'whatsapp_empresa', valor: whatsappEmpresa, tipo: 'texto' });
+                            toast.success('Número de WhatsApp guardado');
+                          } catch (err) { console.error(err); toast.error('Error al guardar número'); }
+                        }}>Guardar</Button>
+                      </div>
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Plantilla de mensaje para QR</Form.Label>
+                      <Form.Control as="textarea" rows={3} value={qrMensajePlantilla} onChange={(e) => setQrMensajePlantilla(e.target.value)} />
+                      <Form.Text className="text-muted">Puedes usar {`{empresa}`},{`{total}`},{`{whatsapp}`},{`{numero_pedido}`} como marcadores.</Form.Text>
+                      <div className="mt-2">
+                        <Button size="sm" variant="primary" onClick={async () => {
+                          try {
+                            await configuracionService.save({ clave: 'qr_mensaje_plantilla', valor: qrMensajePlantilla, tipo: 'texto' });
+                            toast.success('Plantilla guardada');
+                          } catch (err) { console.error(err); toast.error('Error al guardar plantilla'); }
+                        }}>Guardar plantilla</Button>
+                      </div>
+                    </Form.Group>
                   </Card.Body>
                 </Card>
               </Tab>

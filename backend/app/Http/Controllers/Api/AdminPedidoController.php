@@ -7,9 +7,12 @@ use App\Models\Pedido;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
+use App\Models\ConfiguracionSistema;
 use Illuminate\Support\Facades\Log;
 use App\Mail\PedidoConfirmado;
 use App\Mail\PedidoEstadoCambiado;
+use App\Jobs\SendPedidoConfirmadoMail;
+use App\Jobs\SendPedidoEstadoCambiadoMail;
 use Carbon\Carbon;
 
 class AdminPedidoController extends Controller
@@ -117,15 +120,24 @@ class AdminPedidoController extends Controller
         
         // Enviar emails según el estado
         try {
-            // Email especial de confirmación (con PedidoConfirmado)
-            if ($estadoAnterior !== 'confirmado' && $estadoNuevo === 'confirmado') {
-                Mail::to($pedido->cliente_email)->send(new PedidoConfirmado($pedido));
-                Log::info("Email de pedido confirmado enviado a {$pedido->cliente_email} para pedido #{$pedido->id}");
-            }
-            // Emails de cambio de estado para otros estados importantes
-            elseif (in_array($estadoNuevo, ['preparando', 'listo', 'en_camino', 'entregado', 'cancelado'])) {
-                Mail::to($pedido->cliente_email)->send(new PedidoEstadoCambiado($pedido));
-                Log::info("Email de estado '{$estadoNuevo}' enviado a {$pedido->cliente_email} para pedido #{$pedido->id}");
+            // Check if app-level emails are enabled (this does NOT affect Laravel's built-in account confirmation emails)
+            $emailsHabilitados = ConfiguracionSistema::get('emails_habilitados', false);
+
+            if ($emailsHabilitados) {
+                // Email especial de confirmación (con PedidoConfirmado)
+                if ($estadoAnterior !== 'confirmado' && $estadoNuevo === 'confirmado') {
+                    // Dispatch mail sending to the queue to avoid blocking the request and reduce memory spikes
+                    dispatch(new SendPedidoConfirmadoMail($pedido));
+                    Log::info("Queued email de pedido confirmado para {$pedido->cliente_email} pedido #{$pedido->id}");
+                }
+                // Emails de cambio de estado para otros estados importantes
+                elseif (in_array($estadoNuevo, ['preparando', 'listo', 'en_camino', 'entregado', 'cancelado'])) {
+                    dispatch(new SendPedidoEstadoCambiadoMail($pedido));
+                    Log::info("Queued email de estado '{$estadoNuevo}' para {$pedido->cliente_email} pedido #{$pedido->id}");
+                }
+            } else {
+                // Emails disabled via configuracion_sistema; log and skip sending
+                Log::info("Emails deshabilitados por configuración. No se enviará el correo de estado '{$estadoNuevo}' para pedido #{$pedido->id}");
             }
         } catch (\Exception $e) {
             // Loguear el error pero no fallar la actualización

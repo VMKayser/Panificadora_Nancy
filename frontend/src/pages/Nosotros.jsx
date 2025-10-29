@@ -41,6 +41,17 @@ const Nosotros = () => {
         animate="visible"
         variants={fadeInUp}
       >
+        {/* Hero image positioned behind the overlay so we can control object-position (top) */}
+        <img
+          className="nosotros-hero-img"
+          src="/images/nosotros1cabecera1.webp"
+          alt="Cabecera Panificadora Nancy"
+          onError={(e) => { e.target.src = '/images/cabecera.jpg'; }}
+       loading="lazy"
+       decoding="async"
+       style={{ opacity: 0.7 ,
+        }}
+        />
         <div className="hero-overlay">
           <motion.h1 
             className="hero-title"
@@ -48,7 +59,7 @@ const Nosotros = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, duration: 0.8 }}
           >
-            Nuestra Historia
+            Nuestra Historia  
           </motion.h1>
           <motion.p 
             className="hero-subtitle"
@@ -74,11 +85,13 @@ const Nosotros = () => {
             >
               <div className="image-wrapper">
                 <img 
-                  src="/images/panaderia-familia.jpg" 
+                  src="/images/primeraImagenNosotros.webp" 
                   alt="Familia Panificadora Nancy"
                   onError={(e) => {
                     e.target.src = 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800&q=80';
                   }}
+                  loading="lazy"
+                  decoding="async"
                 />
                 <div className="image-badge">
                   <Clock className="badge-icon" />
@@ -182,11 +195,13 @@ const Nosotros = () => {
             >
               <div className="image-wrapper">
                 <img 
-                  src="/images/panadero-trabajo.jpg" 
+                  src="/images/terceraImagenNosotros.webp" 
                   alt="Elaboración artesanal"
                   onError={(e) => {
                     e.target.src = 'https://images.unsplash.com/photo-1590846406792-0adc7f938f1d?w=800&q=80';
                   }}
+                   loading="lazy"
+                   decoding="async"
                 />
                 <div className="image-badge mission-badge">
                   <Heart className="badge-icon" />
@@ -211,11 +226,13 @@ const Nosotros = () => {
             >
               <div className="image-wrapper">
                 <img 
-                  src="/images/paneton-familia.jpg" 
+                  src="/images/segundaImagenNosotros.webp" zz
                   alt="Panetón tradicional"
                   onError={(e) => {
                     e.target.src = 'https://images.unsplash.com/photo-1608198093002-ad4e005484ec?w=800&q=80';
                   }}
+                   loading="lazy"
+                   decoding="async"
                 />
                 <div className="image-badge vision-badge">
                   <Award className="badge-icon" />

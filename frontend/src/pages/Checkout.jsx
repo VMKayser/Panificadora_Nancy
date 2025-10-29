@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSEO } from '../hooks/useSEO';
-import { Container, Row, Col, Form, Button, Card, ListGroup, Image } from 'react-bootstrap';
+import { Container, Row, Col, Form, Button, Card, ListGroup, Image, Spinner, Modal } from 'react-bootstrap';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
-import { crearPedido, getMetodosPago, assetBase } from '../services/api';
+import { crearPedido, getMetodosPagoCached as getMetodosPago, assetBase } from '../services/api';
+import { configuracionService } from '../services/empleadosService';
 import { toast } from 'react-toastify';
+import { useSiteConfig } from '../context/SiteConfigContext';
 
 const Checkout = () => {
   const navigate = useNavigate();
@@ -34,6 +36,14 @@ const Checkout = () => {
   const [fechaEntrega, setFechaEntrega] = useState('');
   const [horaEntrega, setHoraEntrega] = useState('');
   const [minFecha, setMinFecha] = useState('');
+  const [empresaTransporte, setEmpresaTransporte] = useState('');
+  const [copiandoMsg, setCopiandoMsg] = useState(false);
+  const [whatsappEmpresaCfg, setWhatsappEmpresaCfg] = useState('+59176490687');
+  const [qrMensajeTpl, setQrMensajeTpl] = useState('Pago por pedido en Panificadora Nancy — Total: Bs {total}. Envía el comprobante a {whatsapp} y adjunta tu número de pedido {numero_pedido}.');
+  const [showWhatsappModal, setShowWhatsappModal] = useState(false);
+  const [createdPedido, setCreatedPedido] = useState(null);
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrModalUrl, setQrModalUrl] = useState(null);
 
   // SEO: no indexar la página de checkout
   useSEO({
@@ -44,6 +54,22 @@ const Checkout = () => {
 
   // Cargar métodos de pago
   useEffect(() => {
+    // cargar configuraciones dinámicas para QR
+    const loadConfigs = async () => {
+      try {
+        const wa = await configuracionService.getValue('whatsapp_empresa').catch(() => null);
+        if (wa && wa.data && typeof wa.data.valor !== 'undefined') setWhatsappEmpresaCfg(wa.data.valor);
+        else if (wa && wa.valor) setWhatsappEmpresaCfg(wa.valor);
+
+        const tpl = await configuracionService.getValue('qr_mensaje_plantilla').catch(() => null);
+        if (tpl && tpl.data && typeof tpl.data.valor !== 'undefined') setQrMensajeTpl(tpl.data.valor);
+        else if (tpl && tpl.valor) setQrMensajeTpl(tpl.valor);
+      } catch (err) {
+        // ignore
+      }
+    };
+    loadConfigs();
+
     const fetchMetodosPago = async () => {
       try {
         const metodos = await getMetodosPago();
@@ -69,14 +95,35 @@ const Checkout = () => {
   // Prefill form when user is logged in
   useEffect(() => {
     if (!user) return;
+    
+    // Separar nombre y apellido si user.name contiene espacio
+    let nombre = '';
+    let apellido = '';
+    
+    if (user.cliente?.nombre) {
+      nombre = user.cliente.nombre;
+      apellido = user.cliente.apellido || '';
+    } else if (user.name) {
+      const parts = user.name.trim().split(' ');
+      nombre = parts[0] || '';
+      apellido = parts.slice(1).join(' ') || '';
+    }
+    
     setFormData(prev => ({
       ...prev,
-      cliente_nombre: prev.cliente_nombre || user.name || '',
-      cliente_apellido: prev.cliente_apellido || user.last_name || user.apellido || '',
+      cliente_nombre: prev.cliente_nombre || nombre,
+      cliente_apellido: prev.cliente_apellido || apellido,
       cliente_email: prev.cliente_email || user.email || '',
-      cliente_telefono: prev.cliente_telefono || user.telefono || user.phone || '',
+      cliente_telefono: prev.cliente_telefono || user.phone || user.cliente?.telefono || '',
     }));
   }, [user]);
+
+  // QR from admin/site config (public)
+  const { qrUrl } = useSiteConfig();
+
+  // If admin provided a QR, we'll show a single canonical QR option (use first QR method as backing data)
+  const showOnlyAdminQr = !!qrUrl && Array.isArray(metodosPago) && metodosPago.length > 0;
+  const primaryMetodo = showOnlyAdminQr ? metodosPago[0] : null;
 
   // Calcular fecha mínima de entrega basada en productos (en minutos)
   useEffect(() => {
@@ -140,6 +187,17 @@ const Checkout = () => {
       toast.info('Delivery deshabilitado porque hay productos que no permiten envío nacional. Elige Retiro o elimina los productos listados.');
     }
   }, [cart]);
+
+  // Cuando el tipo de entrega cambia a envio_nacional, marcamos envio por pagar
+  useEffect(() => {
+    // Mark envio_por_pagar for both national shipping and local delivery (charge on arrival)
+    if (formData.tipo_entrega === 'envio_nacional' || formData.tipo_entrega === 'delivery') {
+      setFormData(prev => ({ ...prev, envio_por_pagar: true }));
+      // Do NOT prefill empresaTransporte; show a placeholder instead so user actively chooses
+    } else {
+      setFormData(prev => ({ ...prev, envio_por_pagar: false }));
+    }
+  }, [formData.tipo_entrega]);
 
   // Validar dirección básica: por ahora comprobamos que contenga la palabra 'Quillacollo'
   const validarDireccionBasica = (direccion) => {
@@ -248,17 +306,20 @@ const Checkout = () => {
         subtotal: getTotal(),
         descuento: descuento,
         total: getTotal() - descuento,
+        // Campos nuevos/optativos: envio_por_pagar y empresa_transporte (si aplica)
+        envio_por_pagar: !!formData.envio_por_pagar,
+        empresa_transporte: formData.tipo_entrega === 'envio_nacional' ? (empresaTransporte || null) : null,
       };
 
       const response = await crearPedido(pedidoData);
-      
-      toast.success('¡Pedido creado exitosamente!');
-      clearCart();
-      
-      // Redirigir a página de confirmación
-      setTimeout(() => {
-        navigate('/pedido-confirmado', { state: { pedido: response.pedido } });
-      }, 1500);
+
+  toast.success('¡Pedido creado exitosamente!');
+
+  // Guardar pedido creado and show modal for sending receipt via WhatsApp.
+  // Do NOT clear the cart immediately so the user can review/attach the comprobante.
+  const pedido = response?.pedido || response?.data?.pedido || response;
+  setCreatedPedido(pedido);
+  setShowWhatsappModal(true);
 
     } catch (error) {
       console.error('Error al crear pedido:', error);
@@ -295,6 +356,7 @@ const Checkout = () => {
         <Row>
           {/* Columna Izquierda - Formulario */}
           <Col lg={7}>
+            
             {/* Contacto */}
             <Card className="mb-4 shadow-sm">
               <Card.Body>
@@ -497,7 +559,19 @@ const Checkout = () => {
                           }}>Usar mi ubicación</Button>
                         </div>
                       ) : (
-                        <Form.Text className="text-muted">Introduce el departamento o la ciudad para envío nacional (ej. Cochabamba).</Form.Text>
+                          <div>
+                            <Form.Text className="text-muted">Introduce el departamento o la ciudad para envío nacional (ej. Cochabamba).</Form.Text>
+                            <div className="mt-2">
+                              <Form.Label>Empresa de transporte (opcional)</Form.Label>
+                              <Form.Control
+                                type="text"
+                                placeholder="Ej. Emperador"
+                                value={empresaTransporte}
+                                onChange={(e) => setEmpresaTransporte(e.target.value)}
+                              />
+                              <Form.Text className="text-muted">El envío nacional estará marcado como 'por pagar' y la empresa sugerida será enviada con el pedido.</Form.Text>
+                            </div>
+                          </div>
                       )}
 
                     </div>
@@ -514,7 +588,63 @@ const Checkout = () => {
                 <h5 className="mb-3" style={{ fontWeight: 'bold' }}>Pago</h5>
                 <Form.Label>Medios de pago:</Form.Label>
 
-                {metodosPago.map(metodo => (
+                {showOnlyAdminQr ? (
+                  <div
+                    key={primaryMetodo.id}
+                    className="border rounded p-3 mb-2 d-flex align-items-center"
+                    style={{ cursor: 'pointer', backgroundColor: formData.metodos_pago_id === primaryMetodo.id ? '#f8f9fa' : 'white' }}
+                    onClick={() => setFormData(prev => ({ ...prev, metodos_pago_id: primaryMetodo.id }))}
+                  >
+                    {/** Render a single canonical QR option using the admin QR (primaryMetodo provides naming/ids) */}
+                    <Form.Check
+                      type="radio"
+                      name="metodos_pago_id"
+                      checked={formData.metodos_pago_id === primaryMetodo.id}
+                      onChange={() => setFormData(prev => ({ ...prev, metodos_pago_id: primaryMetodo.id }))}
+                      label=""
+                      className="me-3"
+                    />
+                    <div className="d-flex align-items-center w-100">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%' }}>
+                        <div style={{
+                            width: '120px',
+                            height: '120px',
+                            maxWidth: '40vw',
+                            maxHeight: '40vw',
+                            border: '2px solid #ddd',
+                            marginRight: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: '#fff'
+                          }}>
+                          {/* Show admin QR (qrUrl) as the single QR to scan; responsive and tappable to enlarge */}
+                          <Image
+                            src={qrUrl}
+                            alt={primaryMetodo.nombre}
+                            rounded
+                            role="button"
+                            onClick={() => { setQrModalUrl(qrUrl); setShowQrModal(true); }}
+                            loading="lazy"
+                            decoding="async"
+                            style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
+                          />
+                          <small className="text-muted d-block d-sm-none" style={{ position: 'absolute', bottom: 6, left: 8, fontSize: 12 }}>Toca para ampliar</small>
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: '600' }}>{primaryMetodo.nombre}</div>
+                          <div style={{ fontSize: '14px', color: '#555' }}>
+                            Escanea el QR y envía el comprobante por WhatsApp al número de la empresa.
+                          </div>
+                          <div style={{ marginTop: '6px' }}>
+                            <a href={`https://wa.me/${(whatsappEmpresaCfg || '').replace(/\D/g, '')}`} target="_blank" rel="noreferrer">Enviar comprobante por WhatsApp: {whatsappEmpresaCfg}</a>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  metodosPago.map(metodo => (
                   <div 
                     key={metodo.id} 
                     className="border rounded p-3 mb-2 d-flex align-items-center"
@@ -532,9 +662,11 @@ const Checkout = () => {
                     {( /qr/i.test(metodo.codigo || '')) && (
                       <div className="d-flex align-items-center w-100">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%' }}>
-                          <div style={{
+                                <div style={{
                             width: '120px',
                             height: '120px',
+                            maxWidth: '40vw',
+                            maxHeight: '40vw',
                             border: '2px solid #ddd',
                             marginRight: '12px',
                             display: 'flex',
@@ -542,23 +674,58 @@ const Checkout = () => {
                             justifyContent: 'center',
                             background: '#fff'
                           }}>
-                            {/* Mostrar icono subido por admin si existe */}
-                            {metodo.icono_url ? (
-                              <Image
-                                src={metodo.icono_url}
-                                alt={metodo.nombre}
-                                rounded
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                              />
-                            ) : metodo.icono ? (
-                              <Image
-                                src={metodo.icono.startsWith('http') ? metodo.icono : `${assetBase().replace(/\/$/, '')}/${metodo.icono.replace(/^\//, '')}`}
-                                alt={metodo.nombre}
-                                rounded
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                              />
+                            {/* Mostrar QR configurado por admin si existe; si no, fallback a ícono del método. Hacemos la imagen responsiva y ampliable */}
+                            {(/qr/i.test(metodo.codigo || '')) ? (
+                              qrUrl ? (
+                                <Image
+                                  src={qrUrl}
+                                  alt={metodo.nombre}
+                                  rounded
+                                  role="button"
+                                  onClick={() => { setQrModalUrl(qrUrl); setShowQrModal(true); }}
+                                  loading="lazy"
+                                  decoding="async"
+                                  style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
+                                />
+                              ) : metodo.icono_url ? (
+                                <Image
+                                  src={metodo.icono_url}
+                                  alt={metodo.nombre}
+                                  rounded
+                                  loading="lazy"
+                                  decoding="async"
+                                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                />
+                              ) : metodo.icono ? (
+                                <Image
+                                  src={metodo.icono.startsWith('http') ? metodo.icono : `${assetBase().replace(/\/$/, '')}/${metodo.icono.replace(/^\//, '')}`}
+                                  alt={metodo.nombre}
+                                  rounded
+                                  loading="lazy"
+                                  decoding="async"
+                                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                />
+                              ) : (
+                                <span style={{ fontSize: '14px', color: '#333' }}>QR</span>
+                              )
                             ) : (
-                              <span style={{ fontSize: '14px', color: '#333' }}>QR</span>
+                              metodo.icono_url ? (
+                                <Image
+                                  src={metodo.icono_url}
+                                  alt={metodo.nombre}
+                                  rounded
+                                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                />
+                              ) : metodo.icono ? (
+                                <Image
+                                  src={metodo.icono.startsWith('http') ? metodo.icono : `${assetBase().replace(/\/$/, '')}/${metodo.icono.replace(/^\//, '')}`}
+                                  alt={metodo.nombre}
+                                  rounded
+                                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                />
+                              ) : (
+                                <span style={{ fontSize: '14px', color: '#333' }}>QR</span>
+                              )
                             )}
                           </div>
                           <div>
@@ -567,8 +734,9 @@ const Checkout = () => {
                               Escanea el QR y envía el comprobante por WhatsApp al número de la empresa.
                             </div>
                             <div style={{ marginTop: '6px' }}>
-                              <a href={`https://wa.me/59176490687`} target="_blank" rel="noreferrer">Enviar comprobante por WhatsApp: +591 764 90687</a>
+                              <a href={`https://wa.me/${(whatsappEmpresaCfg || '').replace(/\D/g, '')}`} target="_blank" rel="noreferrer">Enviar comprobante por WhatsApp: {whatsappEmpresaCfg}</a>
                             </div>
+                            {/* Solo se mantiene el enlace para abrir WhatsApp y adjuntar la foto del comprobante */}
                           </div>
                         </div>
                       </div>
@@ -586,7 +754,7 @@ const Checkout = () => {
                       </div>
                     )}
                   </div>
-                ))}
+                ))) }
               </Card.Body>
             </Card>
 
@@ -624,8 +792,8 @@ const Checkout = () => {
             </Button>
           </Col>
 
-          {/* Columna Derecha - Resumen */}
-          <Col lg={5}>
+          {/* Columna Derecha - Resumen (oculta en móviles; usar el icono del header para ver el carrito) */}
+          <Col lg={5} className="d-none d-lg-block">
             <Card className="shadow-sm sticky-top" style={{ top: '20px' }}>
               <Card.Body>
                 {/* Productos */}
@@ -633,9 +801,13 @@ const Checkout = () => {
                   {cart.map(item => (
                     <ListGroup.Item key={item.id} className="px-0">
                       <div className="d-flex align-items-center">
-                        <Image
+                          <Image
                           src={item.imagenes?.[0]?.url_imagen_completa || item.imagenes?.[0]?.url_imagen || 'https://picsum.photos/80/80'}
+                          srcSet={`${item.imagenes?.[0]?.url_imagen || item.imagenes?.[0]?.url_imagen_completa || ''} 300w, ${item.imagenes?.[0]?.url_imagen_completa || item.imagenes?.[0]?.url_imagen || ''} 800w`}
+                          sizes="(max-width: 600px) 40vw, 60px"
                           rounded
+                          loading="lazy"
+                          decoding="async"
                           style={{ width: '60px', height: '60px', objectFit: 'cover', marginRight: '12px' }}
                         />
                         <div className="flex-grow-1">
@@ -693,6 +865,14 @@ const Checkout = () => {
 
                 {/* Totales */}
                 <hr />
+                {formData.envio_por_pagar && (
+                  <div className="alert alert-info" role="alert">
+                    {formData.tipo_entrega === 'envio_nacional' ? 'Envío nacional marcado como' : 'Delivery local marcado como'} <strong>por pagar</strong>. El repartidor o la empresa elegida cobrará el envío al recibir el pedido.
+                    {empresaTransporte && (
+                      <div className="mt-2">Empresa sugerida: <strong>{empresaTransporte}</strong></div>
+                    )}
+                  </div>
+                )}
                 <div className="d-flex justify-content-between mb-2">
                   <span>Total Productos:</span>
                   <strong>Bs. {getTotal().toFixed(2)}</strong>
@@ -723,6 +903,97 @@ const Checkout = () => {
           </Col>
         </Row>
       </Form>
+      {/* Modal para enviar comprobante por WhatsApp */}
+      <Modal show={showWhatsappModal} onHide={() => setShowWhatsappModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Enviar comprobante por WhatsApp</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="small text-muted">Para completar el pago por QR, abre WhatsApp y adjunta la foto del comprobante (imagen del QR). El chat se abrirá con el número de la empresa. También puedes revisar el comprobante abajo antes de vaciar tu carrito.</p>
+
+          {/* Comprobante (resumen rápido usando el pedido creado + items aún en el carrito) */}
+          <div className="mb-3">
+            <h6>Comprobante</h6>
+            {createdPedido ? (
+              <div className="small text-muted">
+                <div><strong>Número de pedido:</strong> {createdPedido.numero_pedido || createdPedido.numero || createdPedido.id}</div>
+                <div><strong>Total:</strong> Bs. {(createdPedido.total || (getTotal() - descuento)).toString()}</div>
+                <div><strong>Cliente:</strong> {createdPedido.cliente_nombre || formData.cliente_nombre} {createdPedido.cliente_apellido || formData.cliente_apellido}</div>
+                {formData.indicaciones_especiales && <div><strong>Nota:</strong> {formData.indicaciones_especiales}</div>}
+                <div className="mt-2">
+                  <strong>Items:</strong>
+                  <ul>
+                    {cart.map(i => (
+                      <li key={i.id}>{i.nombre} x{i.cantidad} — Bs {(toNumber(i.precio_minorista) * toNumber(i.cantidad)).toFixed(2)}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div>No se encontró información del pedido. Puedes revisar el carrito abajo.</div>
+            )}
+          </div>
+
+          <div className="d-flex gap-2">
+            <Button variant="success" className="flex-grow-1" onClick={() => {
+              const phoneRaw = (whatsappEmpresaCfg || '').replace(/\D/g, '');
+              const phone = phoneRaw || '';
+
+              // Build message using template if available
+              const orderNumber = createdPedido && (createdPedido.numero_pedido || createdPedido.numero || createdPedido.id) ? (createdPedido.numero_pedido || createdPedido.numero || createdPedido.id) : 'N/A';
+              const totalStr = (createdPedido && createdPedido.total) ? String(createdPedido.total) : (getTotal() - descuento).toFixed(2);
+              const clienteNombre = formData?.cliente_nombre ? String(formData.cliente_nombre).trim() : (createdPedido?.cliente_nombre || 'Cliente');
+
+              let tpl = qrMensajeTpl || 'Pago por pedido en Panificadora Nancy — Total: Bs {total}. Envía el comprobante a {whatsapp} y adjunta tu número de pedido {numero_pedido}.';
+              tpl = tpl.replace(/\{\s*total\s*\}/gi, totalStr).replace(/\{\s*numero_pedido\s*\}/gi, orderNumber).replace(/\{\s*whatsapp\s*\}/gi, whatsappEmpresaCfg || '');
+              // Append nota/indicaciones if present
+              const nota = formData.indicaciones_especiales ? `\nNota del pedido: ${formData.indicaciones_especiales}` : '';
+              const itemsText = cart.map(i => `\n- ${i.nombre} x${i.cantidad}`).join('');
+              const finalMsg = `${tpl}${nota}\n\nItems:${itemsText}`;
+
+              const url = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(finalMsg)}` : `https://wa.me/?text=${encodeURIComponent(finalMsg)}`;
+              window.open(url, '_blank');
+            }}>
+              <i className="bi bi-whatsapp me-2"></i>Abrir WhatsApp para enviar comprobante
+            </Button>
+
+            <Button variant="outline-secondary" onClick={() => {
+              // Go to order detail page without clearing cart
+              setShowWhatsappModal(false);
+              navigate('/pedido-confirmado', { state: { pedido: createdPedido } });
+            }}>Ir a pedido</Button>
+          </div>
+
+          <hr />
+          <div className="d-flex gap-2">
+            <Button variant="primary" className="flex-grow-1" onClick={() => {
+              // Finalizar: vaciar carrito y llevar al usuario a la página de pedido confirmado
+              clearCart();
+              setShowWhatsappModal(false);
+              navigate('/pedido-confirmado', { state: { pedido: createdPedido } });
+            }}>
+              Finalizar y vaciar carrito
+            </Button>
+            <Button variant="outline-danger" onClick={() => {
+              // Close modal but keep cart intact
+              setShowWhatsappModal(false);
+            }}>Cerrar (mantener carrito)</Button>
+          </div>
+        </Modal.Body>
+      </Modal>
+      {/* Modal para mostrar QR ampliado (tappable on mobile) */}
+      <Modal show={showQrModal} onHide={() => setShowQrModal(false)} centered size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>QR para pago</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="text-center">
+          {qrModalUrl ? (
+            <img src={qrModalUrl} alt="QR para pago" loading="lazy" decoding="async" style={{ width: '90vw', maxWidth: 600, height: 'auto' }} />
+          ) : (
+            <div>No hay imagen disponible</div>
+          )}
+        </Modal.Body>
+      </Modal>
     </Container>
   );
 };

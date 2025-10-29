@@ -1,3 +1,4 @@
+import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { CartProvider } from './context/CartContext';
 import { AuthProvider } from './context/AuthContext';
@@ -7,18 +8,18 @@ import Header from './components/Header';
 import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
 import Cart from './pages/Cart';
-import Checkout from './pages/Checkout';
+const Checkout = React.lazy(() => import('./pages/Checkout'));
 import PedidoConfirmado from './pages/PedidoConfirmado';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import AdminPanel from './pages/AdminPanel';
-import VendedorPanel from './pages/VendedorPanel';
+const AdminPanel = React.lazy(() => import('./pages/AdminPanel'));
+const VendedorPanel = React.lazy(() => import('./pages/VendedorPanel'));
 import PerfilPanel from './pages/admin/PerfilPanel';
 import MisPedidos from './pages/MisPedidos';
-import Nosotros from './pages/Nosotros';
-import Contacto from './pages/Contacto';
-import UsersList from './pages/Admin/UsersList';
-import MisVentas from './pages/Vendedor/MisVentas';
+const Nosotros = React.lazy(() => import('./pages/Nosotros'));
+const Contacto = React.lazy(() => import('./pages/Contacto'));
+const UsersList = React.lazy(() => import('./pages/admin/UsersList'));
+const MisVentas = React.lazy(() => import('./pages/Vendedor/MisVentas'));
 import ProduccionForm from './pages/Panadero/ProduccionForm';
 
 function App() {
@@ -36,7 +37,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/carrito" element={<Cart />} />
             <Route path="/productos" element={<Home />} />
-            <Route path="/checkout" element={<Checkout />} />
+            <Route path="/checkout" element={<Suspense fallback={<div className="d-flex justify-content-center py-5" role="status"><div className="spinner-border" role="status"><span className="visually-hidden">Cargando...</span></div></div>}><Checkout /></Suspense>} />
             <Route path="/pedido-confirmado" element={<PedidoConfirmado />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -46,7 +47,9 @@ function App() {
               path="/admin" 
               element={
                 <ProtectedRoute roles={['admin']}>
-                  <AdminPanel />
+                  <Suspense fallback={<div className="d-flex justify-content-center py-5" role="status"><div className="spinner-border" role="status"><span className="visually-hidden">Cargando panel admin...</span></div></div>}>
+                      <AdminPanel />
+                    </Suspense>
                 </ProtectedRoute>
               } 
             />
@@ -56,7 +59,9 @@ function App() {
               path="/admin/usuarios" 
               element={
                 <ProtectedRoute roles={['admin']}>
-                  <UsersList />
+                  <Suspense fallback={<div className="d-flex justify-content-center py-5" role="status"><div className="spinner-border" role="status"><span className="visually-hidden">Cargando...</span></div></div>}>
+                    <UsersList />
+                  </Suspense>
                 </ProtectedRoute>
               } 
             />
@@ -66,7 +71,9 @@ function App() {
               path="/vendedor" 
               element={
                 <ProtectedRoute roles={['admin', 'vendedor']}>
-                  <VendedorPanel />
+                  <Suspense fallback={<div className="d-flex justify-content-center py-5" role="status"><div className="spinner-border" role="status"><span className="visually-hidden">Cargando panel vendedor...</span></div></div>}>
+                      <VendedorPanel />
+                    </Suspense>
                 </ProtectedRoute>
               } 
             />
@@ -76,7 +83,9 @@ function App() {
               path="/vendedor/ventas" 
               element={
                 <ProtectedRoute roles={['admin', 'vendedor']}>
-                  <MisVentas />
+                  <Suspense fallback={<div className="d-flex justify-content-center py-5" role="status"><div className="spinner-border" role="status"><span className="visually-hidden">Cargando...</span></div></div>}>
+                    <MisVentas />
+                  </Suspense>
                 </ProtectedRoute>
               } 
             />
@@ -107,8 +116,8 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-            <Route path="/contacto" element={<Contacto />} />
-            <Route path="/nosotros" element={<Nosotros />} />
+            <Route path="/contacto" element={<Suspense fallback={<div className="d-flex justify-content-center py-5" role="status"><div className="spinner-border" role="status"><span className="visually-hidden">Cargando...</span></div></div>}><Contacto /></Suspense>} />
+            <Route path="/nosotros" element={<Suspense fallback={<div className="d-flex justify-content-center py-5" role="status"><div className="spinner-border" role="status"><span className="visually-hidden">Cargando...</span></div></div>}><Nosotros /></Suspense>} />
           </Routes>
           <ToastContainer
             position="bottom-right"

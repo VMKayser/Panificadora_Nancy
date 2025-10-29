@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Support\SafeTransaction;
 
 class MateriaPrimaController extends Controller
 {
@@ -180,7 +181,7 @@ class MateriaPrimaController extends Controller
             'cantidad' => 'required|numeric|min:0.001',
             'costo_unitario' => 'required|numeric|min:0',
             'numero_factura' => 'nullable|string|max:100',
-            'observaciones' => 'string'
+            'observaciones' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {
@@ -193,43 +194,34 @@ class MateriaPrimaController extends Controller
         $materiaPrima = MateriaPrima::findOrFail($id);
 
         try {
-            DB::beginTransaction();
+            $result = SafeTransaction::run(function () use ($materiaPrima, $request) {
+                $stockAnterior = $materiaPrima->stock_actual;
 
-            $stockAnterior = $materiaPrima->stock_actual;
-            
-            // Agregar stock
-            $materiaPrima->agregarStock(
-                $request->cantidad,
-                $request->costo_unitario
-            );
+                // Agregar stock (el método agrega el movimiento internamente)
+                $materiaPrima->agregarStock(
+                    $request->cantidad,
+                    $request->costo_unitario,
+                    'entrada_compra',
+                    Auth::id(),
+                    $request->numero_factura,
+                    $request->observaciones
+                );
 
-            // Registrar movimiento
-            $materiaPrima->movimientos()->create([
-                'tipo_movimiento' => 'entrada_compra',
-                'cantidad' => $request->cantidad,
-                'costo_unitario' => $request->costo_unitario,
-                'stock_anterior' => $stockAnterior,
-                'stock_nuevo' => $materiaPrima->fresh()->stock_actual,
-                    'user_id' => Auth::id(),
-                'numero_factura' => $request->numero_factura,
-                'observaciones' => $request->observaciones
-            ]);
+                // Actualizar fecha de última compra
+                $materiaPrima->update([
+                    'ultima_compra' => now(),
+                    'costo_unitario' => $request->costo_unitario // Actualizar con el nuevo costo
+                ]);
 
-            // Actualizar fecha de última compra
-            $materiaPrima->update([
-                'ultima_compra' => now(),
-                'costo_unitario' => $request->costo_unitario // Actualizar con el nuevo costo
-            ]);
-
-            DB::commit();
+                return $materiaPrima->fresh();
+            });
 
             return response()->json([
                 'message' => 'Compra registrada exitosamente',
-                'data' => $materiaPrima->fresh()
+                'data' => $result
             ]);
 
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
                 'message' => 'Error al registrar compra: ' . $e->getMessage()
             ], 500);
@@ -244,7 +236,7 @@ class MateriaPrimaController extends Controller
         $validator = Validator::make($request->all(), [
             'nuevo_stock' => 'required|numeric|min:0',
             'motivo' => 'required|in:inventario_fisico,merma,correccion,devolucion',
-            'observaciones' => 'required|string'
+            'observaciones' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {
@@ -257,37 +249,36 @@ class MateriaPrimaController extends Controller
         $materiaPrima = MateriaPrima::findOrFail($id);
 
         try {
-            DB::beginTransaction();
+            $result = SafeTransaction::run(function () use ($materiaPrima, $request) {
+                $stockAnterior = $materiaPrima->stock_actual;
+                $diferencia = $request->nuevo_stock - $stockAnterior;
+                
+                $tipoMovimiento = $diferencia > 0 ? 'entrada_ajuste' : 'salida_ajuste';
+                
+                // Actualizar stock
+                $materiaPrima->update([
+                    'stock_actual' => $request->nuevo_stock
+                ]);
 
-            $stockAnterior = $materiaPrima->stock_actual;
-            $diferencia = $request->nuevo_stock - $stockAnterior;
-            
-            $tipoMovimiento = $diferencia > 0 ? 'entrada_ajuste' : 'salida_ajuste';
-            
-            // Actualizar stock
-            $materiaPrima->update([
-                'stock_actual' => $request->nuevo_stock
-            ]);
-
-            // Registrar movimiento
-            $materiaPrima->movimientos()->create([
-                'tipo_movimiento' => $tipoMovimiento,
-                'cantidad' => abs($diferencia),
-                'stock_anterior' => $stockAnterior,
-                'stock_nuevo' => $request->nuevo_stock,
+                // Registrar movimiento
+                $materiaPrima->movimientos()->create([
+                    'tipo_movimiento' => $tipoMovimiento,
+                    'cantidad' => abs($diferencia),
+                    'stock_anterior' => $stockAnterior,
+                    'stock_nuevo' => $request->nuevo_stock,
                     'user_id' => Auth::id(),
-                'observaciones' => "Motivo: {$request->motivo}. {$request->observaciones}"
-            ]);
+                    'observaciones' => "Motivo: {$request->motivo}" . ($request->observaciones ? ". {$request->observaciones}" : '')
+                ]);
 
-            DB::commit();
+                return $materiaPrima->fresh();
+            });
 
             return response()->json([
                 'message' => 'Stock ajustado exitosamente',
-                'data' => $materiaPrima->fresh()
+                'data' => $result
             ]);
 
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
                 'message' => 'Error al ajustar stock: ' . $e->getMessage()
             ], 500);

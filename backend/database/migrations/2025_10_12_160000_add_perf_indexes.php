@@ -97,14 +97,33 @@ return new class extends Migration {
     }
 
     /**
-     * Helper to check index existence using information_schema
+     * Helper to check index existence (SQLite/MySQL compatible)
+     * Uses try/catch approach since information_schema is not available in SQLite
      */
     private function indexExists(string $table, string $indexName): bool
     {
-        $connection = Schema::getConnection();
-        $db = $connection->getDatabaseName();
-        $query = "SELECT COUNT(1) as cnt FROM information_schema.STATISTICS WHERE table_schema = ? AND table_name = ? AND index_name = ?";
-        $result = $connection->selectOne($query, [$db, $table, $indexName]);
-        return isset($result->cnt) && $result->cnt > 0;
+        try {
+            $driver = Schema::getConnection()->getDriverName();
+            
+            if ($driver === 'sqlite') {
+                // SQLite: query sqlite_master table
+                $result = Schema::getConnection()->selectOne(
+                    "SELECT COUNT(1) as cnt FROM sqlite_master WHERE type = 'index' AND name = ?",
+                    [$indexName]
+                );
+                return isset($result->cnt) && $result->cnt > 0;
+            } else {
+                // MySQL/PostgreSQL: use information_schema
+                $db = Schema::getConnection()->getDatabaseName();
+                $result = Schema::getConnection()->selectOne(
+                    "SELECT COUNT(1) as cnt FROM information_schema.STATISTICS WHERE table_schema = ? AND table_name = ? AND index_name = ?",
+                    [$db, $table, $indexName]
+                );
+                return isset($result->cnt) && $result->cnt > 0;
+            }
+        } catch (\Throwable $e) {
+            // If detection fails, assume index doesn't exist
+            return false;
+        }
     }
 };

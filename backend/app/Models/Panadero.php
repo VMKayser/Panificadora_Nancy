@@ -37,12 +37,16 @@ class Panadero extends Model
         'activo' => 'boolean',
     ];
 
+    /** Runtime cache for the harina pagables total (not persisted as its own column) */
+    protected $harina_pagables_cache = null;
+
     protected $appends = ['salario_por_kilo_total'];
 
     public function getSalarioPorKiloTotalAttribute()
     {
         $precio = floatval($this->salario_por_kilo ?? 0);
-        $kg = intval($this->total_kilos_producidos ?? 0);
+        // Use the new descriptive attribute (alias) for kilos pagables
+        $kg = floatval($this->total_kilos_harina_pagables ?? $this->total_kilos_producidos ?? 0);
         return number_format($precio * $kg, 2, '.', '');
     }
 
@@ -76,10 +80,48 @@ class Panadero extends Model
 
     public function actualizarEstadisticas()
     {
-        $this->total_kilos_producidos = $this->producciones()->sum('cantidad_kg');
+        // Calcular kilos pagables basados exclusivamente en harina_real_usada
+        // kilos_pagables por producción = (float)($p->harina_real_usada ?? 0)
+        $producciones = $this->producciones()->get();
+
+        $total_harina_pagables = 0.0;
+        foreach ($producciones as $p) {
+            $cantidad_kg = floatval($p->cantidad_kg ?? 0);
+            $harina_usada = floatval($p->harina_real_usada ?? 0);
+            $kilos_pagables = $harina_usada; // now equals harina_real_usada as requested
+
+            // Log para trazabilidad por producción (seguimos mostrando cantidad_kg para contexto)
+            try {
+                \Illuminate\Support\Facades\Log::info('Panadero::actualizarEstadisticas - produccion', [
+                    'panadero_id' => $this->id,
+                    'produccion_id' => $p->id,
+                    'cantidad_kg' => $cantidad_kg,
+                    'harina_real_usada' => $harina_usada,
+                    'kilos_pagables' => $kilos_pagables,
+                ]);
+            } catch (\Throwable $_e) { /* ignore logging failures */ }
+
+            $total_harina_pagables += $kilos_pagables;
+        }
+
+        // Persistir en la columna existente 'total_kilos_producidos' para compatibilidad
+        // y exponer un alias descriptivo `total_kilos_harina_pagables` en tiempo de ejecución.
+        $this->total_kilos_producidos = $total_harina_pagables;
+    // cache the value in-memory for accessor usage (do not persist into a non-existing column)
+    $this->harina_pagables_cache = $total_harina_pagables;
         $this->total_unidades_producidas = $this->producciones()->sum('cantidad_unidades');
-        $this->ultima_produccion = $this->producciones()->latest('fecha_produccion')->first()?->fecha_produccion;
+        $this->ultima_produccion = $producciones->sortByDesc('fecha_produccion')->first()?->fecha_produccion;
         $this->save();
+    }
+
+    /** Alias accessor for the new descriptive attribute name */
+    public function getTotalKilosHarinaPagablesAttribute()
+    {
+        // Prefer the runtime cache if present, fall back to the persisted column
+        if ($this->harina_pagables_cache !== null) {
+            return floatval($this->harina_pagables_cache);
+        }
+        return floatval($this->attributes['total_kilos_producidos'] ?? 0);
     }
 
     public function scopeActivos($query)

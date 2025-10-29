@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 
@@ -10,7 +10,11 @@ export default function Login() {
     email: '',
     password: '',
   });
+  const [verifiedBanner, setVerifiedBanner] = useState(false);
+  const location = useLocation();
+  const emailInputRef = useRef(null);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = (e) => {
     setFormData({
@@ -57,6 +61,26 @@ export default function Login() {
     }
   };
 
+  // Detect ?verified=1&email=... and show a friendly banner. Prefill and focus email.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(location.search);
+      const verified = params.get('verified');
+      const email = params.get('email');
+
+      if (verified === '1') {
+        setVerifiedBanner(true);
+        if (email) {
+          setFormData((s) => ({ ...s, email }));
+          // small timeout to ensure input is mounted
+          setTimeout(() => emailInputRef.current?.focus(), 50);
+        }
+      }
+    } catch (err) {
+      // ignore malformed query
+    }
+  }, [location.search]);
+
   return (
     <div className="min-vh-100 d-flex align-items-center justify-content-center" style={{ backgroundColor: '#f5f5f5' }}>
       <div className="container">
@@ -85,28 +109,48 @@ export default function Login() {
                       name="email"
                       value={formData.email}
                       onChange={handleChange}
+                      ref={emailInputRef}
                       required
                       placeholder="tu@email.com"
                       style={{ borderColor: '#8b6f47' }}
                     />
                   </div>
 
+                  {verifiedBanner && (
+                    <div className="alert alert-success d-flex justify-content-between align-items-center" role="alert">
+                      <div>
+                        <strong>Correo verificado.</strong> Ahora puedes iniciar sesión.
+                      </div>
+                      <button type="button" className="btn-close" aria-label="Cerrar" onClick={() => setVerifiedBanner(false)}></button>
+                    </div>
+                  )}
+
                   {/* Password */}
                   <div className="mb-3">
                     <label htmlFor="password" className="form-label fw-semibold">
                       Contraseña
                     </label>
-                    <input
-                      type="password"
-                      className="form-control"
-                      id="password"
-                      name="password"
-                      value={formData.password}
-                      onChange={handleChange}
-                      required
-                      placeholder="••••••••"
-                      style={{ borderColor: '#8b6f47' }}
-                    />
+                    <div className="input-group">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        className="form-control"
+                        id="password"
+                        name="password"
+                        value={formData.password}
+                        onChange={handleChange}
+                        required
+                        placeholder="Contraseña"
+                        style={{ borderColor: '#8b6f47' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(s => !s)}
+                        className="btn btn-outline-secondary"
+                        aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      >
+                        {showPassword ? 'Ocultar' : 'Mostrar'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Botón Submit */}
@@ -144,12 +188,7 @@ export default function Login() {
                   </div>
                 </form>
 
-                {/* Demo credentials */}
-                <div className="alert alert-info mt-4 mb-0" role="alert" style={{ fontSize: '0.85rem' }}>
-                  <strong>👤 Usuario de prueba:</strong><br />
-                  Email: admin@panificadoranancy.com<br />
-                  Contraseña: admin123
-                </div>
+                {/* Demo credentials removed for production readiness */}
               </div>
             </div>
           </div>

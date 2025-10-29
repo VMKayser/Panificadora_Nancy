@@ -15,7 +15,7 @@ class AdminUserSeeder extends Seeder
     public function run(): void
     {
         // Crear usuario admin
-        $admin = User::firstOrCreate(
+        \App\Models\User::query()->updateOrInsert(
             ['email' => 'admin@panificadoranancy.com'],
             [
                 'name' => 'Administrador',
@@ -26,6 +26,7 @@ class AdminUserSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
+        $admin = User::where('email', 'admin@panificadoranancy.com')->first();
 
         // Asignar rol de admin
         $adminRole = Role::where('name', 'admin')->first();

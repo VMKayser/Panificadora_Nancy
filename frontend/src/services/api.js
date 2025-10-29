@@ -5,12 +5,21 @@ import axios from 'axios';
 // Si no está, usar por defecto el backend en el host local (puerto 80): http://localhost/api
 // Esto evita que el dev-server de Vite (por ejemplo :5174) pase a apuntar a /api en su propio origen,
 // lo que provoca 'Failed to fetch' o 401 al llamar al backend real.
-const baseURL = import.meta?.env?.VITE_API_URL || 'http://localhost/api';
+let baseURL = import.meta?.env?.VITE_API_URL || 'http://localhost/api';
+
+// If VITE_API_URL is a relative path (starts with '/'), let axios use the current origin
+// (important when code runs through a public tunnel — the browser origin will be the tunnel).
+if (typeof baseURL === 'string' && baseURL.startsWith('/')) {
+  // keep as-is
+} else if (typeof baseURL === 'string' && baseURL.endsWith('/api')) {
+  // normalize to ensure trailing /api is present without double slashes
+  baseURL = baseURL.replace(/\/$/, '');
+}
 
 // Log para depuración rápida en desarrollo
 if (typeof window !== 'undefined') {
   // eslint-disable-next-line no-console
-  console.info('[api] baseURL =', baseURL);
+  console.info('[api] baseURL =', baseURL, ' (window.location.origin =', window.location.origin + ')');
 }
 
 const api = axios.create({
@@ -71,14 +80,9 @@ export const getProducto = async (id) => {
 
 // Fallback to get users from sample JSON when backend is not available
 export const getUsuarios = async () => {
-  try {
-    const response = await api.get('/usuarios');
-    return response.data;
-  } catch (error) {
-    const resp = await fetch('/sample-users.json');
-    if (!resp.ok) throw error;
-    return await resp.json();
-  }
+  // Direct call to backend; do not fallback to local sample users in production builds.
+  const response = await api.get('/usuarios');
+  return response.data;
 };
 
 
@@ -89,13 +93,37 @@ export const crearPedido = async (pedidoData) => {
 
 // Crear producción (interfaz panadero)
 export const crearProduccion = async (produccionData) => {
-  const response = await api.post('/producciones', produccionData);
+  const response = await api.post('/inventario/producciones', produccionData);
   return response.data;
 };
 
 export const getMetodosPago = async () => {
   const response = await api.get('/metodos-pago');
   return response.data;
+};
+
+// Simple in-memory cache for methods of payment to avoid repeated calls
+// TTL is configurable here (milliseconds). This cache only lives for the lifetime
+// of the page (memory) which is fine for a small public list like payment methods.
+let _metodosPagoCache = null;
+let _metodosPagoCacheAt = 0;
+const METODOS_TTL = 1000 * 60 * 5; // 5 minutes
+
+export const getMetodosPagoCached = async (forceRefresh = false) => {
+  const now = Date.now();
+  if (!forceRefresh && _metodosPagoCache && now - _metodosPagoCacheAt < METODOS_TTL) {
+    return _metodosPagoCache;
+  }
+
+  const response = await api.get('/metodos-pago');
+  _metodosPagoCache = response.data;
+  _metodosPagoCacheAt = Date.now();
+  return _metodosPagoCache;
+};
+
+export const clearMetodosPagoCache = () => {
+  _metodosPagoCache = null;
+  _metodosPagoCacheAt = 0;
 };
 
 // Helper para construir URLs a assets subidos en el backend (storage)
@@ -146,14 +174,8 @@ export const auth = {
 
       return data;
     } catch (error) {
-      // Fallback: simulate login against sample-users.json
-      const resp = await fetch('/sample-users.json');
-      if (!resp.ok) throw error;
-      const users = await resp.json();
-      const user = users.find(u => u.email === credentials.email && u.password === credentials.password);
-      if (!user) throw new Error('Invalid credentials');
-      // Simulate token and user object
-      return { token: 'demo-token', user };
+      // Do not fallback to local sample users for login in production-ready frontend.
+      throw error;
     }
   },
 
@@ -185,6 +207,17 @@ export const auth = {
   // Actualizar perfil
   updateProfile: async (profileData) => {
     const response = await api.put('/profile', profileData);
+    return response.data;
+  },
+
+  // Resend verification email. If `email` is provided we send for that address (public),
+  // otherwise call authenticated resend endpoint.
+  resendVerification: async (email = null) => {
+    if (email) {
+      const response = await api.post('/email/resend', { email });
+      return response.data;
+    }
+    const response = await api.post('/email/resend');
     return response.data;
   },
 
@@ -606,6 +639,34 @@ export const admin = {
   },
   eliminarUsuario: async (id) => {
     const response = await api.delete(`/admin/usuarios/${id}`);
+    return response.data;
+  },
+
+  // ============================================
+  // ADMIN - RECETAS
+  // ============================================
+  getRecetas: async (params = {}) => {
+    const response = await api.get('/admin/recetas', { params });
+    return response.data;
+  },
+
+  getReceta: async (id) => {
+    const response = await api.get(`/admin/recetas/${id}`);
+    return response.data;
+  },
+
+  crearReceta: async (data) => {
+    const response = await api.post('/admin/recetas', data);
+    return response.data;
+  },
+
+  actualizarReceta: async (id, data) => {
+    const response = await api.put(`/admin/recetas/${id}`, data);
+    return response.data;
+  },
+
+  eliminarReceta: async (id) => {
+    const response = await api.delete(`/admin/recetas/${id}`);
     return response.data;
   },
 };

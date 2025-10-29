@@ -110,11 +110,48 @@ export const AuthProvider = ({ children }) => {
   };
 
   const hasRole = (roleName) => {
-    return user?.roles?.some(role => role.name === roleName) || false;
+    if (!user) return false;
+    // Caso 1: user.roles es array de objetos { name }
+    if (Array.isArray(user.roles) && user.roles.length > 0) {
+      // roles puede ser array de strings o array de objetos
+      if (typeof user.roles[0] === 'string') {
+        return user.roles.includes(roleName);
+      }
+      return user.roles.some(role => role?.name === roleName || role?.rol === roleName || role?.role === roleName);
+    }
+    // Caso 2: user.role singular (string)
+    if (typeof user.role === 'string') {
+      return user.role === roleName;
+    }
+    // Caso 3: campo role_name u otros alias
+    if (typeof user.role_name === 'string') {
+      return user.role_name === roleName;
+    }
+    // Caso 4: user.roles como objeto de mapeo { admin: true }
+    if (user.roles && typeof user.roles === 'object') {
+      return !!user.roles[roleName];
+    }
+    return false;
   };
 
   const hasAnyRole = (roleNames) => {
-    return user?.roles?.some(role => roleNames.includes(role.name)) || false;
+    if (!user) return false;
+    if (Array.isArray(user.roles) && user.roles.length > 0) {
+      if (typeof user.roles[0] === 'string') {
+        return user.roles.some(r => roleNames.includes(r));
+      }
+      return user.roles.some(role => role && (roleNames.includes(role.name) || roleNames.includes(role.role) || roleNames.includes(role.rol)));
+    }
+    if (typeof user.role === 'string') {
+      return roleNames.includes(user.role);
+    }
+    if (typeof user.role_name === 'string') {
+      return roleNames.includes(user.role_name);
+    }
+    if (user.roles && typeof user.roles === 'object') {
+      return roleNames.some(rn => !!user.roles[rn]);
+    }
+    return false;
   };
 
   const value = {
@@ -130,6 +167,8 @@ export const AuthProvider = ({ children }) => {
     isAdmin: hasRole('admin'),
     isVendedor: hasRole('vendedor'),
     isCliente: hasRole('cliente'),
+    // Nuevo: flag para panadero
+    isPanadero: hasRole('panadero'),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

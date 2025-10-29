@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
+use App\Support\SafeTransaction;
 use Carbon\Carbon;
 use App\Services\InventarioService;
 
@@ -21,6 +23,13 @@ class PedidoController extends Controller
 
     public function store(Request $request)
     {
+        // Log incoming payload to help debug 500s during order creation
+        try {
+            Log::info('PedidoController::store - payload', $request->all());
+        } catch (\Exception $e) {
+            // ensure logging failure doesn't block request processing
+            Log::warning('PedidoController::store - failed to log payload: ' . $e->getMessage());
+        }
         // Verificar si es venta de mostrador (simplificada)
         $esVentaMostrador = $request->input('es_venta_mostrador', false);
 
@@ -55,9 +64,13 @@ class PedidoController extends Controller
 
             try {
                 // Validar stock para cada detalle (venta mostrador)
+                // Prefetch productos para evitar N+1
                 $insufficient = [];
+                $detProdIds = collect($validated['detalles'])->pluck('producto_id')->unique()->values()->all();
+                $productosMap = Producto::whereIn('id', $detProdIds)->with('inventario')->get()->keyBy('id');
+
                 foreach ($validated['detalles'] as $detalle) {
-                    $productoCheck = Producto::find($detalle['producto_id']);
+                    $productoCheck = $productosMap->get($detalle['producto_id']);
                     if ($productoCheck) {
                         $available = $productoCheck->inventario->stock_actual ?? $productoCheck->stock_actual ?? $productoCheck->stock ?? null;
                         if ($available !== null && $available < $detalle['cantidad']) {
@@ -76,72 +89,74 @@ class PedidoController extends Controller
                         'insufficient_stock' => $insufficient
                     ], 422);
                 }
-                DB::beginTransaction();
+                // Use DB::transaction to ensure Laravel manages savepoints
+                try { Log::info('PedidoController::store - starting mostrador safe transaction', ['vendedor' => Auth::id() ?? null]); } catch (\Throwable $e) {}
+                $pedido = SafeTransaction::run(function () use ($validated) {
+                    try { Log::info('PedidoController::store - inside mostrador transaction (safe) begin'); } catch (\Throwable $e) {}
+                    $numeroPedido = 'VM-' . date('Ymd') . '-' . str_pad(Pedido::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
 
-                $numeroPedido = 'VM-' . date('Ymd') . '-' . str_pad(Pedido::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
+                    // Obtener vendedor_id del usuario autenticado si existe
+                    $vendedorId = null;
+                    if (Auth::check() && Auth::user()->vendedor) {
+                        $vendedorId = Auth::user()->vendedor->id;
+                    }
 
-                // Obtener vendedor_id del usuario autenticado si existe
-                $vendedorId = null;
-                if (Auth::check() && Auth::user()->vendedor) {
-                    $vendedorId = Auth::user()->vendedor->id;
-                }
-
-                $pedido = Pedido::create([
-                    'numero_pedido' => $numeroPedido,
-                    'cliente_id' => null,
-                    'vendedor_id' => $vendedorId,
-                    'cliente_nombre' => $validated['cliente_nombre'],
-                    'cliente_apellido' => '',
-                    'cliente_email' => $validated['cliente_email'],
-                    'cliente_telefono' => $validated['cliente_telefono'] ?? '00000000',
-                    'tipo_entrega' => 'recoger',
-                    'direccion_entrega' => null,
-                    'indicaciones_especiales' => 'Venta en mostrador',
-                    'subtotal' => $validated['subtotal'],
-                    'descuento' => 0,
-                    'descuento_bs' => $validated['descuento_bs'] ?? 0,
-                    'motivo_descuento' => $validated['motivo_descuento'] ?? null,
-                    'total' => $validated['total'],
-                    'metodos_pago_id' => $validated['metodos_pago_id'],
-                    'estado' => 'entregado', // Entregado inmediatamente
-                    'estado_pago' => 'pagado',
-                    'fecha_entrega' => $validated['entrega_datetime'] ?? null,
-                ]);
-
-                foreach ($validated['detalles'] as $detalle) {
-                    $producto = Producto::find($detalle['producto_id']);
-                    
-                    DetallePedido::create([
-                        'pedidos_id' => $pedido->id,
-                        'productos_id' => $detalle['producto_id'],
-                        'nombre_producto' => $producto->nombre,
-                        'precio_unitario' => $detalle['precio_unitario'],
-                        'cantidad' => $detalle['cantidad'],
-                        'subtotal' => $detalle['subtotal'],
+                    $pedido = Pedido::create([
+                        'numero_pedido' => $numeroPedido,
+                        'cliente_id' => null,
+                        'vendedor_id' => $vendedorId,
+                        'cliente_nombre' => $validated['cliente_nombre'],
+                        'cliente_apellido' => '',
+                        'cliente_email' => $validated['cliente_email'],
+                        'cliente_telefono' => $validated['cliente_telefono'] ?? '00000000',
+                        'tipo_entrega' => 'recoger',
+                        'direccion_entrega' => null,
+                        'indicaciones_especiales' => 'Venta en mostrador',
+                        'subtotal' => $validated['subtotal'],
+                        'descuento' => 0,
+                        'descuento_bs' => $validated['descuento_bs'] ?? 0,
+                        'motivo_descuento' => $validated['motivo_descuento'] ?? null,
+                        'total' => $validated['total'],
+                        'metodos_pago_id' => $validated['metodos_pago_id'],
+                        'estado' => 'entregado', // Entregado inmediatamente
+                        'estado_pago' => 'pagado',
+                        'fecha_entrega' => $validated['entrega_datetime'] ?? null,
                     ]);
-                }
 
-                // Después de crear los detalles dentro de la transacción, forzar el descuento
-                // utilizando el servicio de inventario para evitar que el observer created()
-                // se dispare sin encontrar detalles.
+                    foreach ($validated['detalles'] as $detalle) {
+                        $producto = Producto::find($detalle['producto_id']);
+
+                        DetallePedido::create([
+                            'pedidos_id' => $pedido->id,
+                            'productos_id' => $detalle['producto_id'],
+                            'nombre_producto' => $producto->nombre,
+                            'precio_unitario' => $detalle['precio_unitario'],
+                            'cantidad' => $detalle['cantidad'],
+                            'subtotal' => $detalle['subtotal'],
+                        ]);
+                    }
+
+                    // Actualizar estadísticas del vendedor si existe
+                    if (Auth::check() && Auth::user()->vendedor) {
+                        $vendedor = Auth::user()->vendedor;
+                        $vendedor->registrarVenta(
+                            $validated['total'],
+                            $validated['descuento_bs'] ?? 0
+                        );
+                    }
+
+                    return $pedido;
+                });
+                try { Log::info('PedidoController::store - mostrador safe transaction committed', ['pedido_id' => $pedido->id ?? null]); } catch (\Throwable $e) {}
+
+                // Ejecutar el descuento en una transacción propia para asegurar
+                // que se creen los movimientos de inventario de forma determinista.
                 try {
                     $inventarioService = new InventarioService();
-                    $inventarioService->descontarInventario($pedido);
+                    $inventarioService->descontarInventario($pedido, true);
                 } catch (\Exception $e) {
-                    // Loguear y continuar; el observer todavía puede ejecutar en updated()
-                    Log::warning('No se pudo ejecutar descuento inmediato de inventario en venta mostrador: ' . $e->getMessage());
+                    Log::warning('Error ejecutando descuento de inventario post-commit en venta mostrador: ' . $e->getMessage());
                 }
-
-                // Actualizar estadísticas del vendedor si existe
-                if ($vendedorId) {
-                    $vendedor = Auth::user()->vendedor;
-                    $vendedor->registrarVenta(
-                        $validated['total'],
-                        $validated['descuento_bs'] ?? 0
-                    );
-                }
-
-                DB::commit();
 
                 return response()->json([
                     'message' => 'Venta registrada exitosamente',
@@ -149,8 +164,11 @@ class PedidoController extends Controller
                 ], 201);
 
             } catch (\Exception $e) {
-                DB::rollBack();
-                Log::error('Error en venta mostrador: ' . $e->getMessage());
+                // Log full exception and payload for easier debugging
+                Log::error('Error en venta mostrador: ' . $e->getMessage(), [
+                    'exception' => $e,
+                    'payload' => $request->all()
+                ]);
                 return response()->json([
                     'message' => 'Error al procesar la venta',
                     'error' => $e->getMessage(),
@@ -169,6 +187,8 @@ class PedidoController extends Controller
             'direccion_lat' => 'nullable|numeric',
             'direccion_lng' => 'nullable|numeric',
             'indicaciones_especiales' => 'nullable|string',
+            'envio_por_pagar' => 'nullable|boolean',
+            'empresa_transporte' => 'nullable|string|max:255',
             'metodos_pago_id' => 'required|exists:metodos_pago,id',
             'codigo_promocional' => 'nullable|string',
             'productos' => 'required|array|min:1',
@@ -177,160 +197,171 @@ class PedidoController extends Controller
             'entrega_datetime' => 'nullable|date_format:Y-m-d H:i:s',
         ]);
 
-        try {
-            DB::beginTransaction();
+        // Perform validation and availability checks outside the DB transaction
+        // to avoid throwing inside a nested transaction which can lead to
+        // savepoint mismatch errors in MySQL during tests.
+        // Buscar o crear cliente (do this before transaction to validate input)
+        $cliente = Cliente::where('email', $validated['cliente_email'])->first();
+        if (!$cliente) {
+            $cliente = Cliente::create([
+                'nombre' => $validated['cliente_nombre'],
+                'apellido' => $validated['cliente_apellido'],
+                'email' => $validated['cliente_email'],
+                'telefono' => $validated['cliente_telefono'],
+                'direccion' => $validated['direccion_entrega'] ?? null,
+                'tipo_cliente' => 'regular',
+                'activo' => true,
+                'total_pedidos' => 0,
+                'total_gastado' => 0,
+            ]);
+            Log::info("Nuevo cliente creado: {$cliente->id} - {$cliente->email}");
+        } else {
+            Log::info("Cliente existente encontrado: {$cliente->id} - {$cliente->email}");
+        }
 
-            // Buscar o crear cliente
-            $cliente = Cliente::where('email', $validated['cliente_email'])->first();
-            
-            if (!$cliente) {
-                // Crear nuevo cliente
-                $cliente = Cliente::create([
-                    'nombre' => $validated['cliente_nombre'],
-                    'apellido' => $validated['cliente_apellido'],
-                    'email' => $validated['cliente_email'],
-                    'telefono' => $validated['cliente_telefono'],
-                    'direccion' => $validated['direccion_entrega'] ?? null,
-                    'tipo_cliente' => 'regular',
-                    'activo' => true,
-                    'total_pedidos' => 0,
-                    'total_gastado' => 0,
-                ]);
-                Log::info("Nuevo cliente creado: {$cliente->id} - {$cliente->email}");
-            } else {
-                Log::info("Cliente existente encontrado: {$cliente->id} - {$cliente->email}");
-            }
+        $numeroPedido = 'PED-' . date('Y') . '-' . str_pad(Pedido::count() + 1, 4, '0', STR_PAD_LEFT);
 
-            $numeroPedido = 'PED-' . date('Y') . '-' . str_pad(Pedido::count() + 1, 4, '0', STR_PAD_LEFT);
+        $subtotal = 0;
+        $productosData = [];
 
+        // Si es delivery (local) validar coordenadas dentro de Quillacollo
+        if ($validated['tipo_entrega'] === 'delivery') {
+            $lat = $validated['direccion_lat'] ?? null;
+            $lng = $validated['direccion_lng'] ?? null;
+            $direccionText = $validated['direccion_entrega'] ?? '';
+            $direccionContainsQuillacollo = preg_match('/quillacollo/i', $direccionText);
 
-            $subtotal = 0;
-            $productosData = [];
+            // Bounding box aproximado de Quillacollo
+            $minLat = -17.45; $maxLat = -17.22; $minLng = -66.35; $maxLng = -66.10;
 
-            // Si es delivery (local) validar coordenadas dentro de Quillacollo
-            if ($validated['tipo_entrega'] === 'delivery') {
-                $lat = $validated['direccion_lat'] ?? null;
-                $lng = $validated['direccion_lng'] ?? null;
-                $direccionText = $validated['direccion_entrega'] ?? '';
-                $direccionContainsQuillacollo = preg_match('/quillacollo/i', $direccionText);
-
-                // Bounding box aproximado de Quillacollo
-                $minLat = -17.45; $maxLat = -17.22; $minLng = -66.35; $maxLng = -66.10;
-
-                if ($lat && $lng) {
-                    // Si se pasaron coords, comprobar que estén dentro del bounding box
-                    if (!($lat >= $minLat && $lat <= $maxLat && $lng >= $minLng && $lng <= $maxLng)) {
-                        // Si también la dirección textual no indica Quillacollo, rechazar
-                        if (!$direccionContainsQuillacollo) {
-                            return response()->json(['message' => 'La ubicación está fuera de Quillacollo, no es posible delivery local.'], 422);
-                        }
-                        // Si el texto contiene Quillacollo lo aceptamos aunque las coords estén un poco fuera
-                    }
-                } else {
-                    // No se pasaron coords: aceptar delivery solo si la dirección textual indica Quillacollo
+            if ($lat && $lng) {
+                if (!($lat >= $minLat && $lat <= $maxLat && $lng >= $minLng && $lng <= $maxLng)) {
                     if (!$direccionContainsQuillacollo) {
-                        return response()->json(['message' => 'Para delivery local se requieren coordenadas o que la dirección indique Quillacollo'], 422);
+                        return response()->json(['message' => 'La ubicación está fuera de Quillacollo, no es posible delivery local.'], 422);
                     }
                 }
+            } else {
+                if (!$direccionContainsQuillacollo) {
+                    return response()->json(['message' => 'Para delivery local se requieren coordenadas o que la dirección indique Quillacollo'], 422);
+                }
             }
+        }
 
-            // Recolectar productos y validar disponibilidad para envio nacional
-            $blockingProducts = [];
-            $insufficientStock = [];
-            foreach ($validated['productos'] as $productoData) {
-                $producto = Producto::find($productoData['id']);
-                $cantidad = $productoData['cantidad'];
-                $precioUnitario = $producto->precio_minorista;
-                $subtotalProducto = $precioUnitario * $cantidad;
+        // Recolectar productos y validar disponibilidad para envio nacional
+        $blockingProducts = [];
+        $insufficientStock = [];
 
-                // Validar stock disponible si el producto tiene inventario
-                $available = null;
-                if ($producto) {
-                    $available = $producto->inventario->stock_actual ?? $producto->stock_actual ?? $producto->stock ?? null;
-                }
-                if ($available !== null && $cantidad > $available) {
-                    $insufficientStock[] = [
-                        'id' => $producto->id,
-                        'nombre' => $producto->nombre,
-                        'disponible' => $available,
-                        'solicitado' => $cantidad,
-                    ];
-                }
+        // Prefetch productos to avoid N+1 queries
+        $productIds = collect($validated['productos'])->pluck('id')->unique()->values()->all();
+        $productosMap = Producto::whereIn('id', $productIds)->with('inventario')->get()->keyBy('id');
 
-                // Si el pedido es Envío Nacional y el producto no permite envio nacional, marcar
-                if ($validated['tipo_entrega'] === 'envio_nacional' && !$producto->permite_envio_nacional) {
-                    $blockingProducts[] = [
-                        'id' => $producto->id,
-                        'nombre' => $producto->nombre,
-                        'cantidad' => $cantidad,
-                    ];
-                }
+        foreach ($validated['productos'] as $productoData) {
+            $producto = $productosMap->get($productoData['id']);
+            $cantidad = $productoData['cantidad'];
+            $precioUnitario = $producto?->precio_minorista ?? 0;
+            $subtotalProducto = $precioUnitario * $cantidad;
 
-                $subtotal += $subtotalProducto;
-
-                $productosData[] = [
-                    'producto' => $producto,
-                    'cantidad' => $cantidad,
-                    'precio_unitario' => $precioUnitario,
-                    'subtotal' => $subtotalProducto,
+            $available = null;
+            if ($producto) {
+                $available = $producto->inventario->stock_actual ?? $producto->stock_actual ?? $producto->stock ?? null;
+            }
+            if ($available !== null && $cantidad > $available) {
+                $insufficientStock[] = [
+                    'id' => $producto->id ?? $productoData['id'],
+                    'nombre' => $producto->nombre ?? 'Desconocido',
+                    'disponible' => $available,
+                    'solicitado' => $cantidad,
                 ];
             }
 
-            if (!empty($blockingProducts)) {
-                // Si hay productos que impiden el envío, abortar con 422 y lista
-                return response()->json([
-                    'message' => 'Algunos productos no permiten envío nacional',
-                    'blocking_products' => $blockingProducts,
-                ], 422);
+            if ($validated['tipo_entrega'] === 'envio_nacional' && (!$producto?->permite_envio_nacional)) {
+                $blockingProducts[] = [
+                    'id' => $producto->id ?? $productoData['id'],
+                    'nombre' => $producto->nombre ?? 'Desconocido',
+                    'cantidad' => $cantidad,
+                ];
             }
 
-            if (!empty($insufficientStock)) {
-                return response()->json([
-                    'message' => 'Stock insuficiente para algunos productos',
-                    'insufficient_stock' => $insufficientStock,
-                ], 422);
-            }
+            $subtotal += $subtotalProducto;
 
+            $productosData[] = [
+                'producto' => $producto,
+                'cantidad' => $cantidad,
+                'precio_unitario' => $precioUnitario,
+                'subtotal' => $subtotalProducto,
+            ];
+        }
 
-            $pedido = Pedido::create([
-                'numero_pedido' => $numeroPedido,
-                'cliente_id' => $cliente->id, // Vincular con el cliente
-                'cliente_nombre' => $validated['cliente_nombre'],
-                'cliente_apellido' => $validated['cliente_apellido'],
-                'cliente_email' => $validated['cliente_email'],
-                'cliente_telefono' => $validated['cliente_telefono'],
-                'tipo_entrega' => $validated['tipo_entrega'],
-                'direccion_entrega' => $validated['direccion_entrega'] ?? null,
-                // Guardar fecha/hora de entrega si fue provista (campo datetime)
-                'fecha_entrega' => $validated['entrega_datetime'] ?? null,
-                'indicaciones_especiales' => $validated['indicaciones_especiales'] ?? null,
-                'subtotal' => $subtotal,
-                'descuento' => 0, // Por ahora sin descuentos
-                'total' => $subtotal,
-                'metodos_pago_id' => $validated['metodos_pago_id'],
-                'codigo_promocional' => $validated['codigo_promocional'] ?? null,
-                'estado' => 'pendiente',
-                'estado_pago' => 'pendiente',
-            ]);
+        if (!empty($blockingProducts)) {
+            return response()->json([
+                'message' => 'Algunos productos no permiten envío nacional',
+                'blocking_products' => $blockingProducts,
+            ], 422);
+        }
 
-            foreach ($productosData as $data) {
-                DetallePedido::create([
-                    'pedidos_id' => $pedido->id,
-                    'productos_id' => $data['producto']->id,
-                    'nombre_producto' => $data['producto']->nombre,
-                    'precio_unitario' => $data['precio_unitario'],
-                    'cantidad' => $data['cantidad'],
-                    'subtotal' => $data['subtotal'],
-                    'requiere_anticipacion' => $data['producto']->requiere_tiempo_anticipacion,
-                    'tiempo_anticipacion' => $data['producto']->tiempo_anticipacion,
-                    'unidad_tiempo' => $data['producto']->unidad_tiempo,
-                ]);
-            }
+        if (!empty($insufficientStock)) {
+            return response()->json([
+                'message' => 'Stock insuficiente para algunos productos',
+                'insufficient_stock' => $insufficientStock,
+            ], 422);
+        }
 
-            // Actualizar estadísticas del cliente
-            $cliente->actualizarEstadisticas();
+        try {
+            try { Log::info('PedidoController::store - starting safe transaction (normal order)', ['cliente_id' => $cliente->id ?? null]); } catch (\Throwable $e) {}
+            $pedido = SafeTransaction::run(function () use ($validated, $cliente, $numeroPedido, $subtotal, $productosData) {
+                try { Log::info('PedidoController::store - inside transaction (safe) begin (normal order)'); } catch (\Throwable $e) {}
+                // Build payload dynamically to avoid inserting columns that may not exist
+                $pedidoData = [
+                    'numero_pedido' => $numeroPedido,
+                    'cliente_id' => $cliente->id, // Vincular con el cliente
+                    'cliente_nombre' => $validated['cliente_nombre'],
+                    'cliente_apellido' => $validated['cliente_apellido'],
+                    'cliente_email' => $validated['cliente_email'],
+                    'cliente_telefono' => $validated['cliente_telefono'],
+                    'tipo_entrega' => $validated['tipo_entrega'],
+                    'direccion_entrega' => $validated['direccion_entrega'] ?? null,
+                    // Guardar fecha/hora de entrega si fue provista (campo datetime)
+                    'fecha_entrega' => $validated['entrega_datetime'] ?? null,
+                    'indicaciones_especiales' => $validated['indicaciones_especiales'] ?? null,
+                    'subtotal' => $subtotal,
+                    'descuento' => 0, // Por ahora sin descuentos
+                    'total' => $subtotal,
+                    'metodos_pago_id' => $validated['metodos_pago_id'],
+                    'codigo_promocional' => $validated['codigo_promocional'] ?? null,
+                    'estado' => 'pendiente',
+                    'estado_pago' => 'pendiente',
+                ];
 
-            DB::commit();
+                // Only include optional columns if they exist in the DB to avoid SQL errors
+                if (Schema::hasColumn('pedidos', 'envio_por_pagar')) {
+                    $pedidoData['envio_por_pagar'] = $validated['envio_por_pagar'] ?? false;
+                }
+                if (Schema::hasColumn('pedidos', 'empresa_transporte')) {
+                    $pedidoData['empresa_transporte'] = $validated['empresa_transporte'] ?? null;
+                }
+
+                $pedido = Pedido::create($pedidoData);
+
+                foreach ($productosData as $data) {
+                    DetallePedido::create([
+                        'pedidos_id' => $pedido->id,
+                        'productos_id' => $data['producto']->id,
+                        'nombre_producto' => $data['producto']->nombre,
+                        'precio_unitario' => $data['precio_unitario'],
+                        'cantidad' => $data['cantidad'],
+                        'subtotal' => $data['subtotal'],
+                        'requiere_anticipacion' => $data['producto']->requiere_tiempo_anticipacion,
+                        'tiempo_anticipacion' => $data['producto']->tiempo_anticipacion,
+                        'unidad_tiempo' => $data['producto']->unidad_tiempo,
+                    ]);
+                }
+
+                // Actualizar estadísticas del cliente
+                $cliente->actualizarEstadisticas();
+
+                return $pedido;
+            });
+            try { Log::info('PedidoController::store - safe transaction committed (normal order)', ['pedido_id' => $pedido->id ?? null]); } catch (\Throwable $e) {}
 
             // El email de confirmación se enviará cuando el admin cambie el estado a "confirmado"
 
@@ -340,7 +371,17 @@ class PedidoController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
-            DB::rollBack();
+            // If we threw a validation-like exception inside the transaction, return 422
+            if (str_starts_with($e->getMessage(), 'Stock insuficiente') || str_contains($e->getMessage(), 'envío nacional') ) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+
+            // Log full exception and payload to the log for debugging
+            Log::error('Error al crear el pedido: ' . $e->getMessage(), [
+                'exception' => $e,
+                'payload' => $request->all()
+            ]);
+
             return response()->json([
                 'message' => 'Error al crear el pedido',
                 'error' => $e->getMessage(),
@@ -392,11 +433,14 @@ class PedidoController extends Controller
             }
 
             // Obtener pedidos del cliente
+            $perPage = (int) $request->get('per_page', 20);
+            $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+
             $pedidos = Pedido::where('cliente_id', $cliente->id)
                 ->orWhere('cliente_email', $user->email)
                 ->with(['detalles.producto.imagenes', 'metodoPago'])
                 ->orderBy('created_at', 'desc')
-                ->get();
+                ->paginate($perPage);
 
             return response()->json([
                 'pedidos' => $pedidos,

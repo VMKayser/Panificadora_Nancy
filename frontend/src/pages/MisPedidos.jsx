@@ -21,7 +21,9 @@ const MisPedidos = () => {
     try {
       setLoading(true);
       const response = await auth.getMisPedidos();
-      setPedidos(response.pedidos || []);
+      // La respuesta viene con paginación: { pedidos: { data: [...], current_page, ... } }
+      const pedidosData = response.pedidos?.data || response.pedidos || [];
+      setPedidos(Array.isArray(pedidosData) ? pedidosData : []);
     } catch (error) {
       console.error('Error al cargar pedidos:', error);
       toast.error('Error al cargar tus pedidos');
