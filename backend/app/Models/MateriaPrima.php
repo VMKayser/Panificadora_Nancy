@@ -4,10 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use App\Support\SafeTransaction;
 
 class MateriaPrima extends Model
 {
+    use HasFactory;
     use SoftDeletes;
 
     protected $table = 'materias_primas';
@@ -54,7 +59,7 @@ class MateriaPrima extends Model
         return $this->stock_actual >= $cantidad;
     }
 
-    public function descontarStock($cantidad, $tipo_movimiento, $user_id, $observaciones = null, $produccion_id = null)
+    public function descontarStock($cantidad, $tipo_movimiento, $user_id, $observaciones = null, $produccion_id = null, $useTransaction = true)
     {
         // Validaciones
         if ($cantidad <= 0) {
@@ -65,15 +70,18 @@ class MateriaPrima extends Model
             throw new \Exception("Stock insuficiente de {$this->nombre}. Disponible: {$this->stock_actual}, Requerido: {$cantidad}");
         }
 
-        return DB::transaction(function () use ($cantidad, $tipo_movimiento, $user_id, $observaciones, $produccion_id) {
+    $callback = function () use ($cantidad, $tipo_movimiento, $user_id, $observaciones, $produccion_id) {
             $stock_anterior = $this->stock_actual;
-            
+
             // Usar lockForUpdate para evitar race conditions
-            $this->lockForUpdate()->decrement('stock_actual', $cantidad);
+            // IMPORTANTE: llamar lockForUpdate() sobre una query sin scoping
+            // puede afectar a múltiples filas. Usar newQuery()->whereKey() para
+            // asegurarnos de que solo actualizamos la fila actual.
+            $this->newQuery()->whereKey($this->getKey())->lockForUpdate()->decrement('stock_actual', $cantidad);
             $this->refresh();
 
             // Registrar movimiento
-            MovimientoMateriaPrima::create([
+            $mov = MovimientoMateriaPrima::create([
                 'materia_prima_id' => $this->id,
                 'tipo_movimiento' => $tipo_movimiento,
                 'cantidad' => $cantidad,
@@ -84,11 +92,27 @@ class MateriaPrima extends Model
                 'observaciones' => $observaciones,
             ]);
 
+            try { Log::info('MovimientoMateriaPrima creado', ['materia_prima_id' => $this->id, 'movimiento_id' => $mov->id, 'tipo' => $tipo_movimiento, 'cantidad' => $cantidad, 'stock_nuevo' => $this->stock_actual]); } catch (\Throwable $e) {}
+
             return $this;
-        });
+        };
+
+        if ($useTransaction) {
+            try { Log::info('MateriaPrima::descontarStock - delegating to SafeTransaction', ['mp_id' => $this->id, 'cantidad' => $cantidad, 'useTransaction' => $useTransaction]); } catch (\Throwable $e) {}
+            return SafeTransaction::run(function () use ($callback) {
+                try { Log::info('MateriaPrima::descontarStock - inside safe transaction wrapper', ['mp_id' => $this->id]); } catch (\Throwable $e) {}
+                return $callback();
+            });
+        }
+
+        // Si ya estamos dentro de una transacción superior, ejecutar sin abrir una nueva
+        return $callback();
     }
 
-    public function agregarStock($cantidad, $costo_unitario = null, $tipo_movimiento, $user_id, $numero_factura = null, $observaciones = null)
+    // Reordered signature so optional parameters come last and provide safe defaults.
+    // Accepts: cantidad, costo_unitario (optional), tipo_movimiento (defaults to 'entrada_compra'),
+    // user_id (defaults to current Auth user if available), numero_factura (optional), observaciones (optional)
+    public function agregarStock($cantidad, $costo_unitario = null, $tipo_movimiento = 'entrada_compra', $user_id = null, $numero_factura = null, $observaciones = null)
     {
         // Validaciones
         if ($cantidad <= 0) {
@@ -99,11 +123,16 @@ class MateriaPrima extends Model
             throw new \InvalidArgumentException('El costo unitario no puede ser negativo');
         }
 
-        return DB::transaction(function () use ($cantidad, $costo_unitario, $tipo_movimiento, $user_id, $numero_factura, $observaciones) {
+        try { Log::info('MateriaPrima::agregarStock - delegating to SafeTransaction', ['mp_id' => $this->id, 'cantidad' => $cantidad]); } catch (\Throwable $e) {}
+        return SafeTransaction::run(function () use ($cantidad, $costo_unitario, $tipo_movimiento, $user_id, $numero_factura, $observaciones) {
+            try { Log::info('MateriaPrima::agregarStock - inside safe transaction wrapper', ['mp_id' => $this->id]); } catch (\Throwable $e) {}
             $stock_anterior = $this->stock_actual;
+            // Resolve user id: if not provided, use currently authenticated user when possible
+            $resolvedUserId = $user_id ?? Auth::id();
             
             // Usar lockForUpdate para evitar race conditions
-            $this->lockForUpdate()->increment('stock_actual', $cantidad);
+            // Asegurarnos de apuntar solo a la fila actual con whereKey
+            $this->newQuery()->whereKey($this->getKey())->lockForUpdate()->increment('stock_actual', $cantidad);
             $this->refresh();
             
             // Actualizar costo promedio ponderado si viene costo
@@ -120,19 +149,22 @@ class MateriaPrima extends Model
             }
 
             // Registrar movimiento
-            MovimientoMateriaPrima::create([
+            $mov = MovimientoMateriaPrima::create([
                 'materia_prima_id' => $this->id,
                 'tipo_movimiento' => $tipo_movimiento,
                 'cantidad' => $cantidad,
                 'costo_unitario' => $costo_unitario ?? $this->costo_unitario,
                 'stock_anterior' => $stock_anterior,
                 'stock_nuevo' => $this->stock_actual,
-                'user_id' => $user_id,
+                'user_id' => $resolvedUserId,
                 'numero_factura' => $numero_factura,
                 'observaciones' => $observaciones,
             ]);
 
+            try { Log::info('MovimientoMateriaPrima creado', ['materia_prima_id' => $this->id, 'movimiento_id' => $mov->id, 'tipo' => $tipo_movimiento, 'cantidad' => $cantidad, 'stock_nuevo' => $this->stock_actual]); } catch (\Throwable $e) {}
+
             return $this;
+            try { Log::info('MateriaPrima::agregarStock - inside transaction end', ['mp_id' => $this->id]); } catch (\Throwable $e) {}
         });
     }
 

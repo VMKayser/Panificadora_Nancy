@@ -1,12 +1,11 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import PropTypes from 'prop-types';
 import { auth as authApi } from '../services/api';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(localStorage.getItem('auth_token'));
@@ -42,15 +41,21 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      console.log('[AuthContext] Intentando login con:', email);
+      if (import.meta.env.DEV) console.debug('[AuthContext] Intentando login con:', email);
       const data = await authApi.login({ email, password });
-      console.log('[AuthContext] Respuesta del login:', data);
+      if (import.meta.env.DEV) console.debug('[AuthContext] Respuesta del login:', data);
       
       const tokenValue = data.access_token || data.token || localStorage.getItem('auth_token');
       const userValue = data.user || JSON.parse(localStorage.getItem('user') || 'null');
 
-      console.log('[AuthContext] Token extraído:', tokenValue?.substring(0, 10) + '...');
-      console.log('[AuthContext] Usuario extraído:', userValue);
+      if (import.meta.env.DEV) {
+        try {
+          // Keep a minimal, non-sensitive dev message. Avoid printing tokens or full user objects.
+          console.debug('[AuthContext] Login successful (dev)');
+        } catch (e) {
+          // ignore
+        }
+      }
 
       if (tokenValue) {
         setToken(tokenValue);
@@ -110,11 +115,48 @@ export const AuthProvider = ({ children }) => {
   };
 
   const hasRole = (roleName) => {
-    return user?.roles?.some(role => role.name === roleName) || false;
+    if (!user) return false;
+    // Caso 1: user.roles es array de objetos { name }
+    if (Array.isArray(user.roles) && user.roles.length > 0) {
+      // roles puede ser array de strings o array de objetos
+      if (typeof user.roles[0] === 'string') {
+        return user.roles.includes(roleName);
+      }
+      return user.roles.some(role => role?.name === roleName || role?.rol === roleName || role?.role === roleName);
+    }
+    // Caso 2: user.role singular (string)
+    if (typeof user.role === 'string') {
+      return user.role === roleName;
+    }
+    // Caso 3: campo role_name u otros alias
+    if (typeof user.role_name === 'string') {
+      return user.role_name === roleName;
+    }
+    // Caso 4: user.roles como objeto de mapeo { admin: true }
+    if (user.roles && typeof user.roles === 'object') {
+      return !!user.roles[roleName];
+    }
+    return false;
   };
 
   const hasAnyRole = (roleNames) => {
-    return user?.roles?.some(role => roleNames.includes(role.name)) || false;
+    if (!user) return false;
+    if (Array.isArray(user.roles) && user.roles.length > 0) {
+      if (typeof user.roles[0] === 'string') {
+        return user.roles.some(r => roleNames.includes(r));
+      }
+      return user.roles.some(role => role && (roleNames.includes(role.name) || roleNames.includes(role.role) || roleNames.includes(role.rol)));
+    }
+    if (typeof user.role === 'string') {
+      return roleNames.includes(user.role);
+    }
+    if (typeof user.role_name === 'string') {
+      return roleNames.includes(user.role_name);
+    }
+    if (user.roles && typeof user.roles === 'object') {
+      return roleNames.some(rn => !!user.roles[rn]);
+    }
+    return false;
   };
 
   const value = {
@@ -124,12 +166,16 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    // allow components to update the user object without a full reload
+    setUser,
     hasRole,
     hasAnyRole,
     isAuthenticated: !!user,
     isAdmin: hasRole('admin'),
     isVendedor: hasRole('vendedor'),
     isCliente: hasRole('cliente'),
+    // Nuevo: flag para panadero
+    isPanadero: hasRole('panadero'),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -139,6 +185,9 @@ AuthProvider.propTypes = {
   children: PropTypes.node.isRequired,
 };
 
+// El archivo exporta el Provider y su hook: separarlos no aporta y el
+// único efecto es que Fast Refresh recarga la página al editar este archivo.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {

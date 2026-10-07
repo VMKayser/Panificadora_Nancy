@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { Search, Users } from 'lucide-react';
+import useDebounce from '../../hooks/useDebounce';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
 import {
@@ -32,24 +34,25 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
   const [showRoleChangeModal, setShowRoleChangeModal] = useState(false);
   const [roleChangeData, setRoleChangeData] = useState({ userId: null, newRole: '', userName: '', userEmail: '', extraData: {} });
 
+  const debouncedSearch = useDebounce(searchTerm, 350);
+
   useEffect(() => {
     cargarUsuarios();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, filtroActivo, filtroRol]);
+  }, [debouncedSearch, filtroActivo, filtroRol]);
 
   // Open create modal when parent header button toggles the signal (number > 0)
   useEffect(() => {
     if (typeof externalOpenCreate === 'number' && externalOpenCreate > 0) {
       abrirCrear('usuario');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalOpenCreate]);
 
   const cargarUsuarios = async () => {
     try {
       setLoading(true);
       const params = {};
-      if (searchTerm) params.buscar = searchTerm;
+  if (debouncedSearch) params.buscar = debouncedSearch;
       if (filtroActivo !== '') params.activo = filtroActivo;
       if (filtroRol) params.role = filtroRol;
       const data = await admin.getUsuarios(params);
@@ -130,7 +133,8 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           nombre: nombre || 'Sin nombre',
           apellido: apellidoParts.join(' ') || '',
           email: roleChangeData.userEmail,
-          ...extraData
+          ...extraData,
+          observaciones: extraData.observaciones?.trim() || null
         };
         try {
           await admin.crearPanadero(payload);
@@ -149,7 +153,8 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           nombre: nombre || 'Sin nombre',
           apellido: apellidoParts.join(' ') || '',
           email: roleChangeData.userEmail,
-          ...extraData
+          ...extraData,
+          observaciones: extraData.observaciones?.trim() || null
         };
         try {
           await admin.crearVendedor(payload);
@@ -359,7 +364,7 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           <Row>
             <Col md={4}>
               <InputGroup>
-                <InputGroup.Text>🔍</InputGroup.Text>
+                <InputGroup.Text><Search size={16} /></InputGroup.Text>
                 <Form.Control
                   placeholder="Buscar por nombre o email..."
                   value={searchTerm}
@@ -397,7 +402,7 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
             </div>
           ) : usuarios.length === 0 ? (
             <div className="text-center py-5 text-muted">
-              <h4>👥</h4>
+              <Users size={40} className="mb-2" />
               <p>No hay usuarios registrados</p>
             </div>
           ) : (
@@ -420,7 +425,7 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
                       <strong>{u.name}</strong>
                     </td>
                     <td>
-                      <small className="text-muted">📧 {u.email}</small>
+                      <small className="text-muted">{u.email}</small>
                     </td>
                     <td>
                       <Badge bg={getRoleBadgeColor(u.role)}>{u.role}</Badge>

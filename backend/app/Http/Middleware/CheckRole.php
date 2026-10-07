@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use App\Support\SecurityLog;
 use Symfony\Component\HttpFoundation\Response;
 
 class CheckRole
@@ -23,6 +24,7 @@ class CheckRole
         }
 
         if (!$request->user()->hasAnyRole($roles)) {
+            SecurityLog::accesoDenegado($request, 'rol_insuficiente', ['roles_requeridos' => $roles]);
             return response()->json([
                 'message' => 'No tienes permisos para acceder a este recurso'
             ], 403);

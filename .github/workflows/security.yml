@@ -1,0 +1,65 @@
+name: Seguridad
+
+# Controles de seguridad bloqueantes (hallazgos H03, H13, H16 y H20 de la auditoría SIS316).
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+  schedule:
+    - cron: "0 11 * * 1"   # lunes 07:00 Bolivia: detecta advisories nuevos aunque no haya commits
+
+permissions:
+  contents: read
+
+jobs:
+  dependencias-backend:
+    name: composer audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Auditar composer.lock
+        working-directory: backend
+        run: composer audit --locked --no-interaction
+
+  dependencias-frontend:
+    name: npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar exactamente lo del lockfile
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Auditar dependencias que llegan al navegador
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
+  secretos:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql:
+    name: CodeQL (JavaScript)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v3

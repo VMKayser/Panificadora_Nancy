@@ -16,8 +16,8 @@ class MesaCompletaSeeder extends Seeder
     {
         $temporada = Categoria::where('url', 'temporada')->first();
 
-        // Mesa Completa para Difuntos - usar updateOrCreate para evitar duplicados
-        Producto::updateOrCreate(
+        // Mesa Completa para Difuntos - use updateOrInsert to avoid creating nested savepoints
+        Producto::query()->updateOrInsert(
             ['url' => 'mesa-completa-todos-santos'],
             [
             'categorias_id' => $temporada->id,
@@ -116,7 +116,7 @@ Puede agregar masitas especiales adicionales al momento de ordenar.",
         ]);
 
         // Productos individuales que faltan (Maicillos y Fruta Seca)
-        Producto::updateOrCreate(
+        Producto::query()->updateOrInsert(
             ['url' => 'maicillos'],
             [
             'categorias_id' => $temporada->id,
@@ -131,7 +131,7 @@ Puede agregar masitas especiales adicionales al momento de ordenar.",
             'esta_activo' => false, // Por el momento no estamos haciendo
         ]);
 
-        Producto::updateOrCreate(
+        Producto::query()->updateOrInsert(
             ['url' => 'fruta-seca'],
             [
             'categorias_id' => $temporada->id,
@@ -147,7 +147,7 @@ Puede agregar masitas especiales adicionales al momento de ordenar.",
         ]);
 
         // Figuras por separado
-        Producto::updateOrCreate(
+        Producto::query()->updateOrInsert(
             ['url' => 'figuras-individuales'],
             [
             'categorias_id' => $temporada->id,

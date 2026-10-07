@@ -1,0 +1,13 @@
+[Unit]
+Description=Laravel Schedule Runner (panificadora)
+After=network.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/panificadora
+ExecStart=/usr/bin/php /var/www/panificadora/artisan schedule:run
+
+[Install]
+WantedBy=multi-user.target

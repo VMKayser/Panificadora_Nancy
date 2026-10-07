@@ -39,7 +39,7 @@
         }
         .estado-pendiente { background: #ffc107; color: #000; }
         .estado-confirmado { background: #17a2b8; color: #fff; }
-        .estado-preparando { background: #fd7e14; color: #fff; }
+        .estado-en_preparacion { background: #fd7e14; color: #fff; }
         .estado-listo { background: #28a745; color: #fff; }
         .estado-en-camino { background: #007bff; color: #fff; }
         .estado-entregado { background: #28a745; color: #fff; }
@@ -124,7 +124,7 @@
                     @case('confirmado')
                         ✅ Confirmado
                         @break
-                    @case('preparando')
+                    @case('en_preparacion')
                         👨‍🍳 Preparando
                         @break
                     @case('listo')
@@ -172,7 +172,7 @@
                 </div>
                 @break
             
-            @case('preparando')
+            @case('en_preparacion')
                 <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #fd7e14;">
                     <strong>👨‍🍳 Estamos preparando tu pedido</strong>
                     <p style="margin: 10px 0 0 0;">Nuestros panaderos están trabajando en tu pedido con todo el cariño.</p>
@@ -222,15 +222,15 @@
 
         <h3 style="color: #8B4513; margin-top: 30px;">📍 Seguimiento</h3>
         <div class="timeline">
-            <div class="timeline-item {{ in_array($pedido->estado, ['pendiente', 'confirmado', 'preparando', 'listo', 'en_camino', 'entregado']) ? 'active' : '' }}">
+            <div class="timeline-item {{ in_array($pedido->estado, ['pendiente', 'confirmado', 'en_preparacion', 'listo', 'en_camino', 'entregado']) ? 'active' : '' }}">
                 <strong>Pedido recibido</strong>
                 <br>
                 <small style="color: #666;">{{ $pedido->created_at->format('d/m/Y H:i') }}</small>
             </div>
-            <div class="timeline-item {{ in_array($pedido->estado, ['confirmado', 'preparando', 'listo', 'en_camino', 'entregado']) ? 'active' : '' }}">
+            <div class="timeline-item {{ in_array($pedido->estado, ['confirmado', 'en_preparacion', 'listo', 'en_camino', 'entregado']) ? 'active' : '' }}">
                 <strong>Confirmado</strong>
             </div>
-            <div class="timeline-item {{ in_array($pedido->estado, ['preparando', 'listo', 'en_camino', 'entregado']) ? 'active' : '' }}">
+            <div class="timeline-item {{ in_array($pedido->estado, ['en_preparacion', 'listo', 'en_camino', 'entregado']) ? 'active' : '' }}">
                 <strong>En preparación</strong>
             </div>
             <div class="timeline-item {{ in_array($pedido->estado, ['listo', 'en_camino', 'entregado']) ? 'active' : '' }}">

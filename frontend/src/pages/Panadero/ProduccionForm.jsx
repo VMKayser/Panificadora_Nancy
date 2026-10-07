@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Form, Button, Modal, Row, Col, Alert } from 'react-bootstrap';
-import api, { getProductos, admin } from '../../services/api';
+import { useEffect, useState } from 'react';
+import { Form, Button, Row, Col, Alert } from 'react-bootstrap';
+import api, { getProductos } from '../../services/api';
 import { toast } from 'react-toastify';
 
 const unidades = [
@@ -20,7 +20,8 @@ export default function ProduccionForm() {
     hora_inicio: '',
     hora_fin: '',
     cantidad_producida: '',
-    unidad: 'kg',
+    // El stock de productos se lleva en unidades; la harina va aparte en kg
+    unidad: 'unidades',
     harina_real_usada: '',
     observaciones: ''
   });
@@ -65,10 +66,10 @@ export default function ProduccionForm() {
         cantidad_producida: Number(form.cantidad_producida),
         unidad: form.unidad,
         harina_real_usada: Number(form.harina_real_usada),
-        observaciones: form.observaciones || null
+        observaciones: form.observaciones?.trim() || null
       };
 
-      const res = await api.post('/producciones', payload);
+      const res = await api.post('/inventario/producciones', payload);
       toast.success(res.data?.message || 'Producción registrada');
       // Reset form minimal
       setForm(prev => ({ ...prev, cantidad_producida: '', harina_real_usada: '', observaciones: '' }));
@@ -102,7 +103,7 @@ export default function ProduccionForm() {
         <Form.Group className="mb-2">
           <Form.Label>Producto</Form.Label>
           <Form.Control as="select" name="producto_id" value={form.producto_id} onChange={handleChange}>
-            <option value="">-- Seleccionar --</option>
+            <option value="">{loadingProductos ? 'Cargando productos...' : '-- Seleccionar --'}</option>
             {productos.map(p => (
               <option key={p.id} value={p.id}>{p.nombre}</option>
             ))}
@@ -134,7 +135,7 @@ export default function ProduccionForm() {
           <Col md={4}>
             <Form.Group className="mb-2">
               <Form.Label>Cantidad producida</Form.Label>
-              <Form.Control type="number" step="0.001" name="cantidad_producida" value={form.cantidad_producida} onChange={handleChange} />
+              <Form.Control type="number" step="0.01" name="cantidad_producida" value={form.cantidad_producida} onChange={handleChange} />
             </Form.Group>
           </Col>
 
@@ -150,7 +151,7 @@ export default function ProduccionForm() {
           <Col md={4}>
             <Form.Group className="mb-2">
               <Form.Label>Harina real usada (kg)</Form.Label>
-              <Form.Control type="number" step="0.001" name="harina_real_usada" value={form.harina_real_usada} onChange={handleChange} />
+              <Form.Control type="number" step="0.01" name="harina_real_usada" value={form.harina_real_usada} onChange={handleChange} />
             </Form.Group>
           </Col>
         </Row>

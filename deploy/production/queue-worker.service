@@ -1,0 +1,21 @@
+[Unit]
+Description=Laravel Queue Worker (panificadora)
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+Restart=always
+RestartSec=5s
+# Limit memory to avoid exhausting 1GB server
+MemoryLimit=200M
+
+# Working directory - adjust to your install location
+WorkingDirectory=/var/www/panificadora
+ExecStart=/usr/bin/php /var/www/panificadora/artisan queue:work redis --sleep=3 --tries=3 --timeout=60 --memory=128
+
+# Use a simple process stop to allow Laravel to gracefully stop
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

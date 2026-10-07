@@ -2,16 +2,44 @@ import { useState } from 'react';
 import PropTypes from 'prop-types';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
+import { enlaceWhatsapp } from '../../utils/whatsapp';
+
+// Flujo de estados: solo se avanza (se pueden saltar pasos); entregado y cancelado son finales
+const FLUJO_ESTADOS = ['pendiente', 'confirmado', 'en_preparacion', 'listo', 'entregado'];
+const ETIQUETAS_ESTADO = {
+  pendiente: 'Pendiente',
+  confirmado: 'Confirmado',
+  en_preparacion: 'En Preparación',
+  listo: 'Listo para Entregar',
+  entregado: 'Entregado',
+};
+const ESTADOS_FINALES = ['entregado', 'cancelado'];
 
 const PedidoDetailModal = ({ pedido, show, onClose }) => {
   const [estado, setEstado] = useState(pedido.estado);
-  const [fechaEntrega, setFechaEntrega] = useState(pedido.fecha_entrega || '');
-  const [horaEntrega, setHoraEntrega] = useState(pedido.hora_entrega || '');
+  // fecha_entrega llega como "2025-12-20T15:30:00" (hora local de Bolivia)
+  const [fechaEntrega, setFechaEntrega] = useState(pedido.fecha_entrega ? String(pedido.fecha_entrega).slice(0, 10) : '');
+  const [horaEntrega, setHoraEntrega] = useState(
+    pedido.hora_entrega
+      ? String(pedido.hora_entrega).slice(0, 5)
+      : (pedido.fecha_entrega && String(pedido.fecha_entrega).length > 10 ? String(pedido.fecha_entrega).slice(11, 16) : '')
+  );
   const [notas, setNotas] = useState('');
   const [motivoCancelacion, setMotivoCancelacion] = useState('');
   const [updating, setUpdating] = useState(false);
 
   if (!show) return null;
+
+  const esFinal = ESTADOS_FINALES.includes(pedido.estado);
+  const indiceActual = FLUJO_ESTADOS.indexOf(pedido.estado);
+  const estadoPermitido = (e) => Array.isArray(pedido.estados_permitidos)
+    ? pedido.estados_permitidos.includes(e)
+    : !esFinal && FLUJO_ESTADOS.indexOf(e) > indiceActual;
+  const estaPagado = pedido.estado_pago === 'pagado';
+  // El celular es el contacto principal (el correo es opcional en la web)
+  const telefonoCliente = pedido.cliente_telefono ? (
+    <a href={enlaceWhatsapp(pedido.cliente_telefono)} target="_blank" rel="noreferrer">{pedido.cliente_telefono}</a>
+  ) : <span className="text-muted fst-italic">No especificado</span>;
 
   // Formatear fecha
   const formatFecha = (fecha) => {
@@ -25,12 +53,6 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
     });
   };
 
-  // Formatear hora
-  const formatHora = (hora) => {
-    if (!hora) return '-';
-    return hora.substring(0, 5);
-  };
-
   // Actualizar estado
   const handleUpdateEstado = async () => {
     if (estado === pedido.estado) {
@@ -40,7 +62,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
 
     try {
       setUpdating(true);
-      await admin.updateEstadoPedido(pedido.id, { 
+      await admin.updateEstadoPedido(pedido.id, {
         estado,
         notas_admin: notas || undefined,
       });
@@ -48,7 +70,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
       onClose();
     } catch (error) {
       console.error('Error actualizando estado:', error);
-      toast.error('Error al actualizar el estado');
+      toast.error(error.response?.data?.message || 'Error al actualizar el estado');
     } finally {
       setUpdating(false);
     }
@@ -71,7 +93,27 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
       onClose();
     } catch (error) {
       console.error('Error actualizando fecha:', error);
-      toast.error('Error al actualizar la fecha de entrega');
+      toast.error(error.response?.data?.message || 'Error al actualizar la fecha de entrega');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Marcar / desmarcar pago (independiente del estado del pedido)
+  const handleTogglePago = async () => {
+    const nuevoEstadoPago = estaPagado ? 'pendiente' : 'pagado';
+    if (estaPagado && !window.confirm('¿Marcar este pedido como NO pagado?')) {
+      return;
+    }
+
+    try {
+      setUpdating(true);
+      await admin.updatePagoPedido(pedido.id, { estado_pago: nuevoEstadoPago });
+      toast.success(nuevoEstadoPago === 'pagado' ? 'Pedido marcado como pagado' : 'Pago marcado como pendiente');
+      onClose();
+    } catch (error) {
+      console.error('Error actualizando pago:', error);
+      toast.error(error.response?.data?.message || 'Error al actualizar el pago');
     } finally {
       setUpdating(false);
     }
@@ -116,7 +158,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
       onClose();
     } catch (error) {
       console.error('Error cancelando pedido:', error);
-      toast.error('Error al cancelar el pedido');
+      toast.error(error.response?.data?.message || 'Error al cancelar el pedido');
     } finally {
       setUpdating(false);
     }
@@ -167,15 +209,23 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                           <tbody>
                             <tr>
                               <td className="text-muted" style={{ width: '40%' }}>Nombre:</td>
-                              <td><strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong></td>
+                              <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                                <strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong>
+                              </td>
                             </tr>
                             <tr>
                               <td className="text-muted">Email:</td>
-                              <td>{pedido.cliente_email}</td>
+                              <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.cliente_email || <span className="text-muted fst-italic">No especificado</span>}</td>
                             </tr>
                             <tr>
                               <td className="text-muted">Teléfono:</td>
-                              <td>{pedido.cliente_telefono}</td>
+                              <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{telefonoCliente}</td>
+                            </tr>
+                            <tr>
+                              <td className="text-muted">NIT/CI:</td>
+                              <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                                {pedido.nit_ci_factura || <span className="text-muted fst-italic">No especificado</span>}
+                              </td>
                             </tr>
                           </tbody>
                         </table>
@@ -185,15 +235,23 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                       <div className="d-block d-md-none">
                         <div className="mb-2">
                           <div className="text-muted">Nombre</div>
-                          <div><strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong></div>
+                          <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                            <strong>{pedido.cliente_nombre} {pedido.cliente_apellido}</strong>
+                          </div>
                         </div>
                         <div className="mb-2">
                           <div className="text-muted">Email</div>
-                          <div>{pedido.cliente_email}</div>
+                          <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.cliente_email || <span className="text-muted fst-italic">No especificado</span>}</div>
+                        </div>
+                        <div className="mb-2">
+                          <div className="text-muted">Teléfono</div>
+                          <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{telefonoCliente}</div>
                         </div>
                         <div className="mb-0">
-                          <div className="text-muted">Teléfono</div>
-                          <div>{pedido.cliente_telefono}</div>
+                          <div className="text-muted">NIT/CI</div>
+                          <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                            {pedido.nit_ci_factura || <span className="text-muted fst-italic">No especificado</span>}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -218,15 +276,22 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                             <tr>
                               <td className="text-muted">Estado:</td>
                               <td>
-                                <span className={`badge ${
-                                  pedido.estado === 'pendiente' ? 'bg-warning text-dark' :
+                                <span className={`badge ${pedido.estado === 'pendiente' ? 'bg-warning text-dark' :
                                   pedido.estado === 'confirmado' ? 'bg-info' :
-                                  pedido.estado === 'en_preparacion' ? 'bg-primary' :
-                                  pedido.estado === 'listo' ? 'bg-success' :
-                                  pedido.estado === 'entregado' ? 'bg-secondary' :
-                                  'bg-danger'
-                                }`}>
+                                    pedido.estado === 'en_preparacion' ? 'bg-primary' :
+                                      pedido.estado === 'listo' ? 'bg-success' :
+                                        pedido.estado === 'entregado' ? 'bg-secondary' :
+                                          'bg-danger'
+                                  }`}>
                                   {String(pedido.estado || '').replace('_', ' ').toUpperCase()}
+                                </span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="text-muted">Pago:</td>
+                              <td>
+                                <span className={`badge ${estaPagado ? 'bg-success' : pedido.estado_pago === 'rechazado' ? 'bg-danger' : 'bg-warning text-dark'}`}>
+                                  {estaPagado ? 'PAGADO' : String(pedido.estado_pago || 'pendiente').toUpperCase()}
                                 </span>
                               </td>
                             </tr>
@@ -241,7 +306,7 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                             {pedido.tipo_entrega === 'delivery' && (
                               <tr>
                                 <td className="text-muted">Dirección:</td>
-                                <td>{pedido.direccion_entrega}</td>
+                                <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.direccion_entrega}</td>
                               </tr>
                             )}
                           </tbody>
@@ -257,14 +322,21 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                         <div className="mb-2">
                           <div className="text-muted">Estado</div>
                           <div>
-                            <span className={`badge ${
-                              pedido.estado === 'pendiente' ? 'bg-warning text-dark' :
+                            <span className={`badge ${pedido.estado === 'pendiente' ? 'bg-warning text-dark' :
                               pedido.estado === 'confirmado' ? 'bg-info' :
-                              pedido.estado === 'en_preparacion' ? 'bg-primary' :
-                              pedido.estado === 'listo' ? 'bg-success' :
-                              pedido.estado === 'entregado' ? 'bg-secondary' :
-                              'bg-danger'
-                            }`}>{String(pedido.estado || '').replace('_', ' ').toUpperCase()}</span>
+                                pedido.estado === 'en_preparacion' ? 'bg-primary' :
+                                  pedido.estado === 'listo' ? 'bg-success' :
+                                    pedido.estado === 'entregado' ? 'bg-secondary' :
+                                      'bg-danger'
+                              }`}>{String(pedido.estado || '').replace('_', ' ').toUpperCase()}</span>
+                          </div>
+                        </div>
+                        <div className="mb-2">
+                          <div className="text-muted">Pago</div>
+                          <div>
+                            <span className={`badge ${estaPagado ? 'bg-success' : pedido.estado_pago === 'rechazado' ? 'bg-danger' : 'bg-warning text-dark'}`}>
+                              {estaPagado ? 'PAGADO' : String(pedido.estado_pago || 'pendiente').toUpperCase()}
+                            </span>
                           </div>
                         </div>
                         <div className="mb-2">
@@ -274,15 +346,17 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                         {pedido.tipo_entrega === 'delivery' && (
                           <div className="mb-0">
                             <div className="text-muted">Dirección</div>
-                            <div>{pedido.direccion_entrega}</div>
+                            <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{pedido.direccion_entrega}</div>
                           </div>
                         )}
                       </div>
                     </div>
                   </div>
                 </div>
+              </div>
 
-                {/* Productos */}
+              {/* Productos */}
+              <div className="row">
                 <div className="col-12 mb-4">
                   <div className="card">
                     <div className="card-header bg-light">
@@ -304,9 +378,9 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                               <tr key={index}>
                                 <td>
                                   <div>{detalle.nombre_producto}</div>
-                                  {detalle.personalizaciones && (
-                                    <small className="text-muted">
-                                      {detalle.personalizaciones}
+                                  {detalle.personalizacion && (
+                                    <small className="d-block fw-semibold">
+                                      {detalle.personalizacion}
                                     </small>
                                   )}
                                 </td>
@@ -388,20 +462,34 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                             className="form-select mb-2"
                             value={estado}
                             onChange={(e) => setEstado(e.target.value)}
-                            disabled={updating || pedido.estado === 'cancelado'}
+                            disabled={updating || esFinal}
                           >
-                            <option value="pendiente">Pendiente</option>
-                            <option value="confirmado">Confirmado</option>
-                            <option value="en_preparacion">En Preparación</option>
-                            <option value="listo">Listo para Entregar</option>
-                            <option value="entregado">Entregado</option>
+                            {pedido.estado === 'cancelado' && <option value="cancelado">Cancelado</option>}
+                            {FLUJO_ESTADOS.map((e) => (
+                              <option key={e} value={e} disabled={e !== pedido.estado && !estadoPermitido(e)}>
+                                {ETIQUETAS_ESTADO[e]}
+                              </option>
+                            ))}
                           </select>
                           <button
                             className="btn btn-primary btn-sm w-100"
                             onClick={handleUpdateEstado}
-                            disabled={updating || estado === pedido.estado || pedido.estado === 'cancelado'}
+                            disabled={updating || estado === pedido.estado || esFinal}
                           >
                             {updating ? 'Actualizando...' : 'Actualizar Estado'}
+                          </button>
+                          {esFinal && (
+                            <small className="text-muted d-block mt-1">
+                              Un pedido {pedido.estado} ya no cambia de estado.
+                            </small>
+                          )}
+
+                          <button
+                            className={`btn btn-sm w-100 mt-3 ${estaPagado ? 'btn-outline-secondary' : 'btn-success'}`}
+                            onClick={handleTogglePago}
+                            disabled={updating || pedido.estado === 'cancelado'}
+                          >
+                            {estaPagado ? 'Marcar pago como pendiente' : 'Marcar como pagado'}
                           </button>
                         </div>
 
@@ -466,12 +554,12 @@ const PedidoDetailModal = ({ pedido, show, onClose }) => {
                             value={motivoCancelacion}
                             onChange={(e) => setMotivoCancelacion(e.target.value)}
                             placeholder="Motivo de cancelación..."
-                            disabled={updating || pedido.estado === 'cancelado'}
+                            disabled={updating || esFinal}
                           ></textarea>
                           <button
                             className="btn btn-danger btn-sm w-100"
                             onClick={handleCancelar}
-                            disabled={updating || !motivoCancelacion.trim() || pedido.estado === 'cancelado'}
+                            disabled={updating || !motivoCancelacion.trim() || esFinal}
                           >
                             {updating ? 'Cancelando...' : 'Cancelar Pedido'}
                           </button>

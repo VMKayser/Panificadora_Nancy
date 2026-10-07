@@ -1,26 +1,94 @@
 import { useState } from 'react';
-import { Modal, Button, Form } from 'react-bootstrap';
+import { Modal, Form } from 'react-bootstrap';
+import { Clock, MessageCircle, ShoppingBag, Wheat } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useCart } from '../context/CartContext';
 import { toast } from 'react-toastify';
+import { avisarAgregado } from '../utils/avisos';
+import { formatCurrency } from '../utils/number';
+import { getAvailableUnits } from '../utils/stock';
+import QtyStepper from './tienda/QtyStepper';
+import {
+  describirPedidosHasta, enlaceConsulta, etiquetaDe, pedidosCerrados, precioPorConfirmar,
+} from '../utils/temporada';
+
+const UNIDAD_TIEMPO = {
+  horas: ['hora', 'horas'],
+  dias: ['día', 'días'],
+  semanas: ['semana', 'semanas'],
+};
 
 const ProductModal = ({ show, onHide, producto }) => {
   const { addToCart } = useCart();
   const [cantidad, setCantidad] = useState(1);
   const [extrasSeleccionados, setExtrasSeleccionados] = useState({});
+  const [imgRota, setImgRota] = useState(false);
+  const [fotoActiva, setFotoActiva] = useState(0);
+  const [personalizacion, setPersonalizacion] = useState('');
+  const [faltaDato, setFaltaDato] = useState(false);
 
   // Return early si no hay producto
   if (!producto) return null;
 
-  // La variable imagen
-  const imagen = producto?.imagenes && producto.imagenes.length > 0
-    ? (producto.imagenes[0].url_imagen_completa || producto.imagenes[0].url_imagen)
-    : 'https://picsum.photos/600/400';
+  // Versión de 960 px que genera el backend; el original si no existe
+  const fotos = producto.imagenes || [];
+  const foto = fotos[fotoActiva] || fotos[0];
+  const imagen = foto ? (foto.url_mediana || foto.url_imagen_completa || foto.url_imagen) : null;
+  const elegirFoto = (i) => {
+    setFotoActiva(i);
+    setImgRota(false);
+  };
 
-  const handleExtraChange = (extraIndex, cantidadDocenas) => {
+  const porConfirmar = precioPorConfirmar(producto);
+  const cerrado = pedidosCerrados(producto);
+  const pedidosHasta = describirPedidosHasta(producto);
+  const etiqueta = etiquetaDe(producto);
+
+  const stockDisponible = getAvailableUnits(producto);
+
+  const handleCantidadChange = (delta) => {
+    setCantidad(prev => {
+      const next = Math.max(1, prev + delta);
+      if (stockDisponible !== null && next > stockDisponible) {
+        toast.error(`Máximo disponible: ${stockDisponible} unidad${stockDisponible === 1 ? '' : 'es'}`);
+        return prev;
+      }
+      return next;
+    });
+  };
+
+  const handleExtraToggle = (extraIndex, checked) => {
+    if (!checked) {
+      setExtrasSeleccionados(prev => ({
+        ...prev,
+        [extraIndex]: 0
+      }));
+      return;
+    }
+    const extra = producto.extras_disponibles?.[extraIndex];
+    const available = getAvailableUnits(extra);
+    if (available !== null && available < 1) {
+      toast.error(`${extra?.nombre || 'Extra'} sin stock disponible`);
+      return;
+    }
     setExtrasSeleccionados(prev => ({
       ...prev,
-      [extraIndex]: cantidadDocenas
+      [extraIndex]: 1
+    }));
+  };
+
+  const handleExtraQuantity = (extraIndex, nextValue) => {
+    const extra = producto.extras_disponibles?.[extraIndex];
+    const available = getAvailableUnits(extra);
+    const safeValue = Math.max(0, Math.floor(Number(nextValue) || 0));
+    if (available !== null && safeValue > available) {
+      toast.error(`Máximo disponible para ${extra?.nombre || 'extra'}: ${available}`);
+      setExtrasSeleccionados(prev => ({ ...prev, [extraIndex]: available }));
+      return;
+    }
+    setExtrasSeleccionados(prev => ({
+      ...prev,
+      [extraIndex]: safeValue
     }));
   };
 
@@ -41,19 +109,26 @@ const ProductModal = ({ show, onHide, producto }) => {
   };
 
   const handleAgregarAlCarrito = () => {
+    if (etiqueta && personalizacion.trim() === '') {
+      setFaltaDato(true);
+      document.getElementById(`pmodal-dato-${producto.id}`)?.focus();
+      return;
+    }
+
     // Comprobar stock del producto principal
-    const prodStock = producto?.inventario?.stock_actual ?? producto?.stock_actual ?? producto?.stock ?? null;
-    if (prodStock !== null && Number(prodStock) <= 0) {
+    if (stockDisponible !== null && stockDisponible <= 0) {
       toast.error('Producto sin stock');
       return;
     }
-    if (prodStock !== null && cantidad > Number(prodStock)) {
-      toast.error(`Cantidad solicitada supera stock disponible (${prodStock})`);
+
+    const unidadesSolicitadas = Math.max(1, Math.floor(Number(cantidad) || 1));
+    if (stockDisponible !== null && unidadesSolicitadas > stockDisponible) {
+      toast.error(`Cantidad solicitada supera stock disponible (${stockDisponible})`);
       return;
     }
 
     // Agregar producto principal
-    addToCart(producto, cantidad);
+    addToCart(producto, unidadesSolicitadas, personalizacion);
 
     // Agregar extras seleccionados
     if (producto.extras_disponibles) {
@@ -62,16 +137,17 @@ const ProductModal = ({ show, onHide, producto }) => {
           const extra = producto.extras_disponibles[parseInt(index)];
           if (!extra) return;
 
-            const extraStock = extra?.stock_actual ?? extra?.stock ?? null;
-            if (extraStock !== null && Number(extraStock) <= 0) {
-              toast.error(`${extra.nombre} sin stock`);
-              return;
-            }
+          const extraDisponible = getAvailableUnits(extra);
+          const docenasInt = Math.max(0, Math.floor(Number(docenas) || 0));
+          if (extraDisponible !== null && extraDisponible <= 0) {
+            toast.error(`${extra.nombre} sin stock`);
+            return;
+          }
 
-            if (extraStock !== null && docenas > Number(extraStock)) {
-              toast.error(`Cantidad de extra supera stock (${extraStock})`);
-              return;
-            }
+          if (extraDisponible !== null && docenasInt > extraDisponible) {
+            toast.error(`Cantidad de extra supera stock (${extraDisponible})`);
+            return;
+          }
 
           const precioUnitario = parseFloat(extra.precio_unitario ?? extra.precio ?? 0) || 0;
           const cantidadMinima = parseFloat(extra.cantidad_minima ?? extra.cantidad ?? 1) || 1;
@@ -86,21 +162,18 @@ const ProductModal = ({ show, onHide, producto }) => {
             es_extra: true,
             producto_padre_id: producto.id
           };
-          addToCart(productoExtra, docenas);
+          addToCart(productoExtra, docenasInt);
         }
       });
     }
 
-    // Mostrar notificación
-    const totalItems = cantidad + Object.values(extrasSeleccionados).reduce((sum, val) => sum + val, 0);
-    toast.success(`✅ ${totalItems} producto(s) agregado(s) al carrito`, {
-      position: "bottom-right",
-      autoClose: 2000,
-    });
+    avisarAgregado(producto, unidadesSolicitadas);
 
     // Resetear y cerrar
     setCantidad(1);
     setExtrasSeleccionados({});
+    setPersonalizacion('');
+    setFaltaDato(false);
     onHide();
   };
 
@@ -108,198 +181,198 @@ const ProductModal = ({ show, onHide, producto }) => {
   const basePrice = parseFloat(producto.precio_minorista) || 0;
   const totalGeneral = (basePrice * (parseInt(cantidad) || 0)) + totalExtras;
 
+  const descripcionCorta = String(producto.descripcion_corta || '').trim();
+  const descripcion = String(producto.descripcion || '').trim();
+  const tiempo = Number(producto.tiempo_anticipacion) || 24;
+  const [singular, plural] = UNIDAD_TIEMPO[producto.unidad_tiempo] || UNIDAD_TIEMPO.horas;
+  const unidadTiempo = tiempo === 1 ? singular : plural;
+
   return (
-    <Modal show={show} onHide={onHide} size="lg" centered>
-      <Modal.Header closeButton style={{ borderBottom: '1px solid #ddd' }}>
-        <Modal.Title style={{ color: '#000' }}>{producto.nombre}</Modal.Title>
+    <Modal show={show} onHide={onHide} size="lg" centered scrollable fullscreen="sm-down" className="pn-pmodal">
+      <Modal.Header closeButton closeLabel="Cerrar">
+        <Modal.Title as="h2">{producto.nombre}</Modal.Title>
       </Modal.Header>
       <Modal.Body>
-        <div className="row">
-          <div className="col-md-6">
-            <img
-              src={imagen}
-              alt={producto.nombre}
-              style={{ width: '100%', borderRadius: '12px', marginBottom: '20px' }}
-            />
+        <div className="pn-pmodal__grid">
+          <div className="pn-pmodal__galeria">
+            <div className="pn-pmodal__media">
+              {imagen && !imgRota ? (
+                <img
+                  onError={() => setImgRota(true)}
+                  src={imagen}
+                  alt={foto?.texto_alternativo || producto.nombre}
+                  decoding="async"
+                />
+              ) : (
+                <div className="pn-noimg"><Wheat size={56} /></div>
+              )}
+            </div>
+            {fotos.length > 1 && (
+              <div className="pn-pmodal__thumbs" role="group" aria-label="Fotos del producto">
+                {fotos.map((f, i) => (
+                  <button
+                    key={f.id ?? i}
+                    type="button"
+                    aria-pressed={f === foto}
+                    aria-label={f.texto_alternativo || `Foto ${i + 1}`}
+                    onClick={() => elegirFoto(i)}
+                  >
+                    <img src={f.url_miniatura || f.url_imagen_completa || f.url_imagen} alt="" loading="lazy" decoding="async" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="col-md-6">
-            {producto.presentacion && String(producto.presentacion).trim() !== '' && (
-              <div style={{
-                backgroundColor: '#f5f1ed',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                display: 'inline-block',
-                marginBottom: '12px',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#8b6f47'
-              }}>
-                📦 {producto.presentacion}
-              </div>
-            )}
 
-            <h3 style={{ color: '#8b6f47', fontWeight: 'bold', marginBottom: '16px' }}>
-              Bs {parseFloat(producto.precio_minorista).toFixed(2)}
-            </h3>
-
-            {/* Descripción completa del producto */}
-            {producto.descripcion && (
-              <div style={{
-                backgroundColor: '#f8f9fa',
-                padding: '12px 16px',
-                borderRadius: '8px',
-                marginBottom: '16px',
-                fontSize: '14px',
-                lineHeight: '1.6',
-                color: '#444'
-              }}>
-                <strong style={{ color: '#534031', display: 'block', marginBottom: '6px' }}>Descripción:</strong>
-                {producto.descripcion}
-              </div>
-            )}
-
-            {producto.requiere_tiempo_anticipacion && (
-              <div style={{
-                backgroundColor: '#fff3cd',
-                border: '1px solid #ffc107',
-                borderRadius: '8px',
-                padding: '10px',
-                marginBottom: '16px',
-                fontSize: '14px'
-              }}>
-                ⏰ <strong>Importante:</strong> Requiere {producto.tiempo_anticipacion} {producto.unidad_tiempo} de anticipación
-              </div>
-            )}
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Cantidad:</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <Button
-                  onClick={() => setCantidad(Math.max(1, cantidad - 1))}
-                  style={{ backgroundColor: 'transparent', border: 'none', color: '#000', fontSize: '20px' }}
-                >
-                  -
-                </Button>
-                <span style={{ fontSize: '18px', fontWeight: 'bold', minWidth: '30px', textAlign: 'center' }}>
-                  {cantidad}
-                </span>
-                <Button
-                  onClick={() => setCantidad(cantidad + 1)}
-                  style={{ backgroundColor: 'transparent', border: 'none', color: '#000', fontSize: '20px' }}
-                >
-                  +
-                </Button>
-              </div>
+          <div className="pn-pmodal__info">
+            <div>
+              <p className="pn-pmodal__price">
+                {porConfirmar ? 'Precio por confirmar' : `Bs ${formatCurrency(producto.precio_minorista)}`}
+              </p>
+              {(producto.presentacion || producto.categoria?.nombre) && (
+                <div className="pn-pmodal__meta mt-2">
+                  {String(producto.presentacion || '').trim() !== '' && <span className="pn-chip">{producto.presentacion}</span>}
+                  {producto.categoria?.nombre && <span className="pn-chip">{producto.categoria.nombre}</span>}
+                </div>
+              )}
             </div>
 
-            {/* Extras Opcionales */}
-            {producto.extras_disponibles && producto.extras_disponibles.length > 0 && (
-              <div style={{ marginTop: '24px', padding: '16px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
-                <h5 style={{ marginBottom: '16px', color: '#534031' }}>✨ Extras Opcionales</h5>
-                <p style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>
-                  Agrega masitas especiales a tu pedido (no incluidas en la mesa base)
-                </p>
-                
-                {producto.extras_disponibles.map((extra, index) => (
-                  <div key={index} style={{ marginBottom: '16px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                    {extra.imagen_url && (
-                      <img 
-                        src={extra.imagen_url} 
-                        alt={extra.nombre}
-                        style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
-                      />
-                    )}
-                    <div style={{ flex: 1 }}>
+            {porConfirmar && (
+              <div className="pn-notice">
+                <MessageCircle size={18} />
+                <span>Estamos actualizando el precio. Escríbenos por WhatsApp y te lo confirmamos.</span>
+              </div>
+            )}
+
+            {cerrado ? (
+              <div className="pn-notice">
+                <Clock size={18} />
+                <span><strong>Pedidos cerrados:</strong> ya no recibimos pedidos de este producto por la web.</span>
+              </div>
+            ) : (producto.requiere_tiempo_anticipacion || pedidosHasta) && (
+              <div className="pn-notice">
+                <Clock size={18} />
+                <span>
+                  {producto.requiere_tiempo_anticipacion && (
+                    <><strong>Pedido con anticipación:</strong> este producto se prepara por encargo y requiere {tiempo} {unidadTiempo}. </>
+                  )}
+                  {pedidosHasta && <>Recibimos pedidos hasta el <strong>{pedidosHasta}</strong>.</>}
+                </span>
+              </div>
+            )}
+
+            {descripcionCorta && descripcionCorta !== descripcion && <p className="pn-pmodal__lead">{descripcionCorta}</p>}
+            {descripcion && <p className="pn-pmodal__desc">{descripcion}</p>}
+
+            {etiqueta && !porConfirmar && !cerrado && (
+              <div className="pn-field">
+                <label htmlFor={`pmodal-dato-${producto.id}`} className="pn-field__label">{etiqueta}</label>
+                <input
+                  id={`pmodal-dato-${producto.id}`}
+                  className={`pn-input${faltaDato ? ' is-invalid' : ''}`}
+                  value={personalizacion}
+                  onChange={(e) => {
+                    setPersonalizacion(e.target.value);
+                    if (e.target.value.trim()) setFaltaDato(false);
+                  }}
+                  maxLength={180}
+                  autoComplete="off"
+                  aria-invalid={faltaDato}
+                  aria-describedby={faltaDato ? `pmodal-dato-${producto.id}-error` : undefined}
+                />
+                {faltaDato && (
+                  <p id={`pmodal-dato-${producto.id}-error`} className="pn-field__error" role="alert">
+                    Escribe «{etiqueta}» para agregarlo.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {!porConfirmar && !cerrado && (
+              <div>
+                <span className="pn-field-label" id="pmodal-cantidad">Cantidad</span>
+                <QtyStepper
+                  value={cantidad}
+                  max={stockDisponible}
+                  label="Cantidad"
+                  onDecrease={() => handleCantidadChange(-1)}
+                  onIncrease={() => handleCantidadChange(1)}
+                />
+                {stockDisponible !== null && (
+                  <small className="d-block mt-1 text-muted">Disponibles: {stockDisponible}</small>
+                )}
+              </div>
+            )}
+
+            {!porConfirmar && !cerrado && producto.extras_disponibles && producto.extras_disponibles.length > 0 && (
+              <div className="pn-extras">
+                <h3>Extras opcionales</h3>
+                <p>No están incluidos en el producto: se agregan a tu pedido y se cobran aparte.</p>
+                {producto.extras_disponibles.map((extra, index) => {
+                  const seleccion = extrasSeleccionados[index] || 0;
+                  const disponibleExtra = getAvailableUnits(extra);
+                  const precioExtra = (parseFloat(extra.precio_unitario ?? extra.precio ?? 0) || 0) * (parseFloat(extra.cantidad_minima ?? extra.cantidad ?? 1) || 1);
+                  return (
+                    <div key={index} className="pn-extra">
+                      {extra.imagen_url ? (
+                        <img src={extra.imagen_url} alt="" loading="lazy" decoding="async" />
+                      ) : <span />}
                       <Form.Check
                         type="checkbox"
-                        id={`extra-${index}`}
-                        checked={extrasSeleccionados[index] > 0}
-                        onChange={(e) => handleExtraChange(index, e.target.checked ? 1 : 0)}
+                        id={`extra-${producto.id}-${index}`}
+                        checked={seleccion > 0}
+                        onChange={(e) => handleExtraToggle(index, e.target.checked)}
                         label={
-                          <div>
+                          <span>
                             <strong>{extra.nombre}</strong>
-                            <div style={{ fontSize: '13px', color: '#666' }}>{extra.descripcion}</div>
-                            <div style={{ fontSize: '14px', color: '#8b6f47', fontWeight: 'bold' }}>
-                              Bs {parseFloat(extra.precio_unitario ?? extra.precio ?? 0).toFixed(2)} x {extra.cantidad_minima || 1} {extra.unidad || 'unidad'}
-                            </div>
-                          </div>
+                            {extra.descripcion && <span className="d-block small text-muted">{extra.descripcion}</span>}
+                            <span className="d-block small fw-semibold" style={{ color: 'var(--pn-cafe-900)' }}>
+                              Bs {formatCurrency(extra.precio_unitario ?? extra.precio ?? 0)}
+                              {(extra.cantidad_minima > 1 || extra.unidad) && ` × ${extra.cantidad_minima || 1} ${extra.unidad || 'unidad'}`}
+                            </span>
+                          </span>
                         }
                       />
-                      
-                      {extrasSeleccionados[index] > 0 && (
-                        <div style={{ marginTop: '8px', marginLeft: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <span style={{ fontSize: '14px' }}>Cantidad de {extra.unidad}s:</span>
-                          <Button
+                      {seleccion > 0 && (
+                        <div className="pn-extra__qty">
+                          <QtyStepper
                             size="sm"
-                            onClick={() => handleExtraChange(index, Math.max(0, extrasSeleccionados[index] - 1))}
-                            style={{ backgroundColor: 'transparent', border: 'none', color: '#000' }}
-                          >
-                            -
-                          </Button>
-                          <span style={{ fontWeight: 'bold', minWidth: '20px', textAlign: 'center' }}>
-                            {extrasSeleccionados[index]}
-                          </span>
-                          <Button
-                            size="sm"
-                            onClick={() => handleExtraChange(index, extrasSeleccionados[index] + 1)}
-                            style={{ backgroundColor: 'transparent', border: 'none', color: '#000' }}
-                          >
-                            +
-                          </Button>
-                            <span style={{ fontSize: '14px', color: '#8b6f47', marginLeft: '8px' }}>
-                            = Bs {( (parseFloat(extra.precio_unitario ?? extra.precio ?? 0) || 0) * (parseFloat(extra.cantidad_minima ?? extra.cantidad ?? 1) || 1) * (parseInt(extrasSeleccionados[index]) || 0) ).toFixed(2)}
-                          </span>
+                            value={seleccion}
+                            min={0}
+                            max={disponibleExtra}
+                            label={`Cantidad de ${extra.nombre}`}
+                            onDecrease={() => handleExtraQuantity(index, seleccion - 1)}
+                            onIncrease={() => handleExtraQuantity(index, seleccion + 1)}
+                          />
+                          <span>= Bs {formatCurrency(precioExtra * seleccion)}</span>
                         </div>
                       )}
                     </div>
-                  </div>
-                ))}
-
+                  );
+                })}
                 {totalExtras > 0 && (
-                  <div style={{ 
-                    borderTop: '1px solid #ddd', 
-                    paddingTop: '12px', 
-                    marginTop: '12px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontWeight: 'bold'
-                  }}>
-                    <span>Subtotal extras:</span>
-                    <span style={{ color: '#8b6f47' }}>Bs {totalExtras.toFixed(2)}</span>
+                  <div className="pn-sum__row fw-semibold">
+                    <span>Subtotal extras</span>
+                    <span>Bs {formatCurrency(totalExtras)}</span>
                   </div>
                 )}
               </div>
             )}
           </div>
         </div>
-
-        {/* Descripción completa */}
-        <div style={{ marginTop: '24px', borderTop: '1px solid #ddd', paddingTop: '24px' }}>
-          <h5 style={{ marginBottom: '16px', color: '#534031' }}>Descripción Detallada</h5>
-          <div style={{ whiteSpace: 'pre-line', lineHeight: '1.8', color: '#333' }}>
-            {producto.descripcion}
-          </div>
-        </div>
       </Modal.Body>
-      <Modal.Footer style={{ borderTop: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: '14px', color: '#666' }}>Total:</div>
-          <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#000' }}>
-            Bs {totalGeneral.toFixed(2)}
-          </div>
-        </div>
-        <div>
-          <Button 
-            variant="secondary" 
-            onClick={onHide}
-            style={{ marginRight: '12px', backgroundColor: '#fff', border: '1px solid #ccc', color: '#000' }}
-          >
-            Cancelar
-          </Button>
-          <Button variant="primary" onClick={handleAgregarAlCarrito}>
-            🛒 Agregar al Carrito
-          </Button>
-        </div>
+      <Modal.Footer>
+        {porConfirmar ? (
+          <a href={enlaceConsulta(producto)} className="pn-btn pn-btn--wa pn-btn--lg" target="_blank" rel="noopener noreferrer">
+            <MessageCircle size={18} /> Consultar precio por WhatsApp
+          </a>
+        ) : cerrado ? (
+          <button type="button" className="pn-btn pn-btn--primary pn-btn--lg" disabled>Pedidos cerrados</button>
+        ) : (
+          <button type="button" className="pn-btn pn-btn--primary pn-btn--lg" onClick={handleAgregarAlCarrito}>
+            <ShoppingBag size={18} /> Agregar · Bs {formatCurrency(totalGeneral)}
+          </button>
+        )}
       </Modal.Footer>
     </Modal>
   );
@@ -315,6 +388,9 @@ ProductModal.propTypes = {
     descripcion_corta: PropTypes.string,
     presentacion: PropTypes.string,
     precio_minorista: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    precio_por_confirmar: PropTypes.bool,
+    pedidos_hasta: PropTypes.string,
+    etiqueta_personalizacion: PropTypes.string,
     requiere_tiempo_anticipacion: PropTypes.bool,
     tiempo_anticipacion: PropTypes.number,
     unidad_tiempo: PropTypes.string,
@@ -328,6 +404,9 @@ ProductModal.propTypes = {
     })),
     imagenes: PropTypes.arrayOf(PropTypes.shape({
       url_imagen: PropTypes.string,
+      url_mediana: PropTypes.string,
+      url_miniatura: PropTypes.string,
+      texto_alternativo: PropTypes.string,
     })),
   }),
 };

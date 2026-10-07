@@ -2,16 +2,26 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\StockInsuficienteException;
 use App\Models\Produccion;
 use App\Models\Receta;
 use App\Models\Producto;
+use App\Models\MateriaPrima;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use App\Support\SafeTransaction;
+use Illuminate\Validation\ValidationException;
+use App\Support\MensajeError;
+use App\Http\Controllers\Concerns\ListadoSeguro;
 
 class ProduccionController extends Controller
 {
+    use ListadoSeguro;
+
     /**
      * Listar producciones
      */
@@ -42,25 +52,38 @@ class ProduccionController extends Controller
 
         $producciones = $query->orderBy('fecha_produccion', 'desc')
             ->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 20));
+            ->paginate($this->porPagina($request, 20));
 
         return response()->json($producciones);
     }
 
     /**
      * Registrar nueva producción (Interfaz del panadero)
+     *
+     * Reglas:
+     * - Si el producto no tiene receta y vienen ingredientes, se crea la receta con
+     *   ellos. Si ya tiene receta, nunca se modifica: los ingredientes enviados se
+     *   descuentan además de la receta, solo para esta producción.
+     * - Sin harina_real_usada se usa la harina teórica de la receta.
+     * - Todo (receta nueva, producción, descuentos) va en una transacción: si falta
+     *   stock no queda nada a medias.
      */
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'producto_id' => 'required|exists:productos,id',
+            'panadero_id' => 'nullable|exists:panaderos,id',
             'fecha_produccion' => 'required|date',
             'hora_inicio' => 'nullable|date_format:H:i',
             'hora_fin' => 'nullable|date_format:H:i|after:hora_inicio',
-            'harina_real_usada' => 'required|numeric|min:0.001',
+            'harina_real_usada' => 'nullable|numeric|min:0',
             'cantidad_producida' => 'required|numeric|min:0.001',
             'unidad' => 'required|in:unidades,kg,docenas',
-            'observaciones' => 'nullable|string'
+            'observaciones' => 'nullable|string',
+            // ingredientes extra: array of { materia_prima_id, cantidad }
+            'ingredientes' => 'nullable|array',
+            'ingredientes.*.materia_prima_id' => 'required_with:ingredientes|exists:materias_primas,id',
+            'ingredientes.*.cantidad' => 'required_with:ingredientes|numeric|min:0.0001',
         ]);
 
         if ($validator->fails()) {
@@ -70,67 +93,169 @@ class ProduccionController extends Controller
             ], 422);
         }
 
+        $ingredientes = collect($request->get('ingredientes', []))
+            ->map(fn ($ing) => [
+                'materia_prima_id' => isset($ing['materia_prima_id']) ? (int) $ing['materia_prima_id'] : null,
+                'cantidad' => isset($ing['cantidad']) ? (float) $ing['cantidad'] : 0,
+            ])
+            ->filter(fn ($ing) => !empty($ing['materia_prima_id']) && $ing['cantidad'] > 0)
+            ->values()
+            ->all();
+
+        // Si quien registra es un panadero y no se eligió otro, la producción es suya
+        $panaderoId = $request->panadero_id ?? Auth::user()?->panadero?->id;
+
         try {
-            DB::beginTransaction();
+            [$produccion, $recetaMessage] = SafeTransaction::run(function () use ($request, $ingredientes, $panaderoId) {
+                $receta = Receta::where('producto_id', $request->producto_id)
+                    ->where('activa', true)
+                    ->first();
 
-            // Obtener la receta activa del producto
-            $receta = Receta::where('producto_id', $request->producto_id)
-                ->where('activa', true)
-                ->first();
+                $recetaMessage = null;
+                $recetaCreada = false;
+                if (!$receta && !empty($ingredientes)) {
+                    $receta = $this->crearRecetaDesdeProduccion($request, $ingredientes);
+                    $recetaCreada = true;
+                    $recetaMessage = 'Receta creada automáticamente';
+                }
 
-            if (!$receta) {
-                return response()->json([
-                    'message' => 'No hay receta activa para este producto'
-                ], 422);
-            }
+                if (!$receta) {
+                    throw ValidationException::withMessages([
+                        'producto_id' => 'No hay receta activa para este producto y no se proporcionaron ingredientes',
+                    ]);
+                }
 
-            // Verificar stock disponible
-            if (!$receta->verificarStock()) {
-                return response()->json([
-                    'message' => 'Stock insuficiente de ingredientes',
-                    'ingredientes_faltantes' => $receta->ingredientes->filter(function ($ingrediente) {
-                        return !$ingrediente->materiaPrima->tieneStock($ingrediente->cantidad);
-                    })->map(function ($ingrediente) {
-                        return [
-                            'nombre' => $ingrediente->materiaPrima->nombre,
-                            'necesario' => $ingrediente->cantidad,
-                            'disponible' => $ingrediente->materiaPrima->stock_actual,
-                            'unidad' => $ingrediente->materiaPrima->unidad_medida
-                        ];
-                    })->values()
-                ], 422);
-            }
+                $cantidad_producida = (float) $request->cantidad_producida;
+                $unidad = $request->unidad ?? 'unidades';
+                $harinaReal = (float) ($request->harina_real_usada ?? 0);
 
-            // Crear registro de producción
-            $produccion = Produccion::create([
-                'producto_id' => $request->producto_id,
-                'receta_id' => $receta->id,
-                'user_id' => Auth::id(),
-                'fecha_produccion' => $request->fecha_produccion,
-                'hora_inicio' => $request->hora_inicio,
-                'hora_fin' => $request->hora_fin,
-                'cantidad_producida' => $request->cantidad_producida,
-                'unidad' => $request->unidad,
-                'harina_real_usada' => $request->harina_real_usada,
-                'estado' => 'en_proceso',
-                'observaciones' => $request->observaciones
-            ]);
+                $produccionData = [
+                    'producto_id' => $request->producto_id,
+                    'receta_id' => $receta->id,
+                    'user_id' => Auth::id(),
+                    'cantidad_producida' => $cantidad_producida,
+                    'fecha_produccion' => $request->fecha_produccion,
+                    'hora_inicio' => $request->hora_inicio,
+                    'hora_fin' => $request->hora_fin,
+                    'observaciones' => $request->observaciones,
+                    'unidad' => $unidad,
+                    // null = usar la harina teórica de la receta (se calcula al procesar)
+                    'harina_real_usada' => $harinaReal > 0 ? $harinaReal : null,
+                    'estado' => 'en_proceso',
+                ];
 
-            // Procesar la producción (descuenta inventario)
-            $produccion->procesar();
+                if ($this->produccionesHasColumn('panadero_id')) {
+                    $produccionData['panadero_id'] = $panaderoId;
+                }
+                if ($this->produccionesHasColumn('cantidad_kg')) {
+                    $produccionData['cantidad_kg'] = $unidad === 'kg' ? $cantidad_producida : null;
+                }
+                if ($this->produccionesHasColumn('cantidad_unidades')) {
+                    $produccionData['cantidad_unidades'] = $unidad !== 'kg' ? Receta::aUnidadesStock($cantidad_producida, $unidad) : null;
+                }
 
-            DB::commit();
+                $produccion = Produccion::create($produccionData);
 
+                // Con receta recién creada los ingredientes SON la receta (override);
+                // con receta existente se suman a ella (extra).
+                $modo = $recetaCreada ? 'override' : 'extra';
+                $produccion->procesar(array_map(fn ($ing) => $ing + ['modo' => $modo], $ingredientes));
+
+                return [$produccion, $recetaMessage];
+            });
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (StockInsuficienteException $e) {
             return response()->json([
-                'message' => 'Producción registrada exitosamente',
-                'data' => $produccion->load(['producto', 'receta', 'user'])
-            ], 201);
-
+                'message' => $e->getMessage(),
+                'ingredientes_faltantes' => $e->detalle,
+            ], 422);
+        } catch (\InvalidArgumentException $e) {
+            // Unidades incompatibles entre receta y producción, etc.
+            return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Exception $e) {
-            DB::rollBack();
+            // Log full exception and request payload to help debugging 500s from production registration
+            try {
+                Log::error('Error al registrar producción', [
+                    'exception_message' => $e->getMessage(),
+                    'exception_trace' => $e->getTraceAsString(),
+                    'user_id' => $request->user()?->id,
+                ]);
+            } catch (\Exception $_logEx) {
+                // If logging fails, swallow to avoid masking original error
+                Log::error('Error al intentar loggear excepción de producción: ' . $_logEx->getMessage());
+            }
+
             return response()->json([
-                'message' => 'Error al registrar producción: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al registrar producción')
             ], 500);
+        }
+
+        // Construir mensaje de éxito
+        $successMessage = 'Producción registrada exitosamente';
+        if ($recetaMessage) {
+            $successMessage .= '. ' . $recetaMessage;
+        }
+
+        // Update panadero statistics (best effort)
+        $this->actualizarEstadisticasPanadero($produccion);
+
+        return response()->json([
+            'success' => true,
+            'message' => $successMessage,
+            'data' => $produccion->load(['producto', 'panadero']),
+            'receta_info' => $recetaMessage // Info adicional sobre receta
+        ], 201);
+    }
+
+    /**
+     * Crea la receta del producto a partir de los ingredientes usados en esta
+     * producción (cantidades en la unidad de stock de cada materia prima).
+     */
+    private function crearRecetaDesdeProduccion(Request $request, array $ingredientes): Receta
+    {
+        // Usar la cantidad producida como rendimiento inicial sensible
+        $cantidadProducida = (float) $request->cantidad_producida;
+        $rendimiento = max($cantidadProducida, 1);
+
+        $receta = Receta::create([
+            'producto_id' => $request->producto_id,
+            'activa' => true,
+            'nombre_receta' => 'Receta generada automáticamente',
+            'descripcion' => 'Creada desde producción el ' . now()->format('d/m/Y H:i'),
+            'rendimiento' => $rendimiento,
+            'unidad_rendimiento' => $request->unidad ?? 'unidades'
+        ]);
+
+        // La columna IngredienteReceta.cantidad representa la cantidad total
+        // necesaria para el rendimiento de la receta
+        $materias = MateriaPrima::whereIn('id', array_column($ingredientes, 'materia_prima_id'))->get()->keyBy('id');
+        foreach ($ingredientes as $ing) {
+            $mp = $materias->get($ing['materia_prima_id']);
+            $cantidad_por_receta = ($ing['cantidad'] / $cantidadProducida) * $rendimiento;
+
+            $receta->ingredientes()->create([
+                'materia_prima_id' => $ing['materia_prima_id'],
+                'cantidad' => round(max($cantidad_por_receta, 0.001), 3),
+                'unidad' => $mp?->unidad_medida ?? 'kg',
+                'orden' => 0
+            ]);
+        }
+
+        Log::info("Receta creada automáticamente para producto {$request->producto_id}");
+
+        return $receta;
+    }
+
+    private function actualizarEstadisticasPanadero(Produccion $produccion): void
+    {
+        try {
+            if ($produccion->panadero) {
+                $produccion->panadero->actualizarEstadisticas();
+            }
+        } catch (\Throwable $_e) {
+            // don't block success response if updating stats fails
+            Log::warning('No se pudo actualizar estadísticas de panadero: ' . $_e->getMessage());
         }
     }
 
@@ -206,29 +331,21 @@ class ProduccionController extends Controller
         }
 
         try {
-            DB::beginTransaction();
-
-            // TODO: Aquí se debería revertir los movimientos de inventario
-            // Por ahora solo cambiar el estado
-
-            $produccion->update([
-                'estado' => 'cancelado',
-                'observaciones' => ($produccion->observaciones ?? '') . "\n\nCANCELADO: " . $request->motivo
-            ]);
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Producción cancelada exitosamente',
-                'data' => $produccion->fresh()
-            ]);
-
+            $produccion->revertir($request->motivo, Auth::id());
+        } catch (StockInsuficienteException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
-                'message' => 'Error al cancelar producción: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al cancelar producción')
             ], 500);
         }
+
+        $this->actualizarEstadisticasPanadero($produccion);
+
+        return response()->json([
+            'message' => 'Producción cancelada exitosamente',
+            'data' => $produccion->fresh()
+        ]);
     }
 
     /**
@@ -363,5 +480,34 @@ class ProduccionController extends Controller
         ];
 
         return response()->json($analisis);
+    }
+
+    /**
+     * Determina si la tabla producciones cuenta con una columna en particular.
+     * Se cachea el listado para evitar golpear el schema metadata en cada request.
+     */
+    protected function produccionesHasColumn(string $column): bool
+    {
+        static $columnCache = null;
+
+        if ($columnCache === null) {
+            try {
+                $columns = Schema::hasTable('producciones')
+                    ? Schema::getColumnListing('producciones')
+                    : [];
+                $columnCache = array_map('strtolower', $columns);
+            } catch (\Throwable $e) {
+                $columnCache = [];
+                try {
+                    Log::warning('No se pudieron obtener las columnas de producciones', [
+                        'error' => $e->getMessage(),
+                    ]);
+                } catch (\Throwable $logError) {
+                    // Ignorar errores al intentar loguear
+                }
+            }
+        }
+
+        return in_array(strtolower($column), $columnCache, true);
     }
 }

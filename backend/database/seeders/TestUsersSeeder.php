@@ -17,8 +17,14 @@ class TestUsersSeeder extends Seeder
      */
     public function run(): void
     {
+        // Usuarios de prueba con contraseñas conocidas: nunca en producción.
+        if (app()->environment('production')) {
+            $this->command?->warn(static::class . ' omitido: no se crean usuarios de prueba en producción.');
+            return;
+        }
+
         // Usuario Panificador/Vendedor
-        $panificador = User::firstOrCreate(
+        \App\Models\User::query()->updateOrInsert(
             ['email' => 'vendedor@panificadoranancy.com'],
             [
                 'name' => 'Carlos Panificador',
@@ -28,6 +34,7 @@ class TestUsersSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
+        $panificador = User::where('email', 'vendedor@panificadoranancy.com')->first();
 
         // Asignar rol de vendedor
         $vendedorRole = Role::where('name', 'vendedor')->first();
@@ -48,7 +55,7 @@ class TestUsersSeeder extends Seeder
         ];
 
         // Crear usuario Panadero (separado del vendedor) si no existe
-        $panaderoUser = User::firstOrCreate(
+        \App\Models\User::query()->updateOrInsert(
             ['email' => 'panadero@panificadoranancy.com'],
             [
                 'name' => 'Pedro Panadero',
@@ -58,6 +65,7 @@ class TestUsersSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
+        $panaderoUser = User::where('email', 'panadero@panificadoranancy.com')->first();
 
         // Asignar rol de panadero al usuario panadero
         $panaderoRole = Role::where('name', 'panadero')->first();
@@ -68,16 +76,16 @@ class TestUsersSeeder extends Seeder
         try {
             // If panaderos table has user_id, link the Panadero to the created User
             if (Schema::hasColumn('panaderos', 'user_id')) {
-                Panadero::firstOrCreate(
-                    ['user_id' => $panaderoUser->id],
-                    array_merge($panaderoData, ['user_id' => $panaderoUser->id, 'codigo_panadero' => Panadero::generarCodigoPanadero()])
-                );
+                    \App\Models\Panadero::query()->updateOrInsert(
+                        ['user_id' => $panaderoUser->id],
+                        array_merge($panaderoData, ['user_id' => $panaderoUser->id, 'codigo_panadero' => Panadero::generarCodigoPanadero()])
+                    );
             } else {
                 // Fallback: older schema where panaderos had email field
-                Panadero::firstOrCreate(
-                    ['email' => 'vendedor@panificadoranancy.com'],
-                    $panaderoData
-                );
+                    \App\Models\Panadero::query()->updateOrInsert(
+                        ['email' => 'vendedor@panificadoranancy.com'],
+                        $panaderoData
+                    );
             }
         } catch (\Exception $e) {
             // If migration state is unexpected, log and continue without failing the seeder
@@ -85,7 +93,7 @@ class TestUsersSeeder extends Seeder
         }
 
         // Usuario Cliente 1
-        $cliente1 = User::firstOrCreate(
+        \App\Models\User::query()->updateOrInsert(
             ['email' => 'maria@cliente.com'],
             [
                 'name' => 'María García',
@@ -95,6 +103,7 @@ class TestUsersSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
+        $cliente1 = User::where('email', 'maria@cliente.com')->first();
 
         // Asignar rol de cliente
         $clienteRole = Role::where('name', 'cliente')->first();
@@ -115,12 +124,13 @@ class TestUsersSeeder extends Seeder
 
         try {
             if (Schema::hasColumn('clientes', 'user_id')) {
-                    Cliente::firstOrCreate(
+                    \App\Models\Cliente::query()->updateOrInsert(
                         ['user_id' => $cliente1->id],
                         array_merge($clienteData1, ['user_id' => $cliente1->id, 'email' => $cliente1->email])
                     );
                 } else {
-                    Cliente::firstOrCreate(
+                    // Fallback for older schema: use query builder upsert to avoid nested transactions
+                    \App\Models\Cliente::query()->updateOrInsert(
                         ['email' => 'maria@cliente.com'],
                         $clienteData1
                     );
@@ -130,7 +140,7 @@ class TestUsersSeeder extends Seeder
         }
 
         // Usuario Cliente 2
-        $cliente2 = User::firstOrCreate(
+        \App\Models\User::query()->updateOrInsert(
             ['email' => 'juan@cliente.com'],
             [
                 'name' => 'Juan Pérez',
@@ -140,6 +150,7 @@ class TestUsersSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
+        $cliente2 = User::where('email', 'juan@cliente.com')->first();
 
         if ($clienteRole && !$cliente2->hasRole('cliente')) {
             $cliente2->roles()->attach($clienteRole->id);
@@ -157,12 +168,13 @@ class TestUsersSeeder extends Seeder
 
         try {
             if (Schema::hasColumn('clientes', 'user_id')) {
-                    Cliente::firstOrCreate(
+                    \App\Models\Cliente::query()->updateOrInsert(
                         ['user_id' => $cliente2->id],
                         array_merge($clienteData2, ['user_id' => $cliente2->id, 'email' => $cliente2->email])
                     );
                 } else {
-                    Cliente::firstOrCreate(
+                    // Fallback for older schema: use query builder upsert to avoid nested transactions
+                    \App\Models\Cliente::query()->updateOrInsert(
                         ['email' => 'juan@cliente.com'],
                         $clienteData2
                     );
@@ -172,7 +184,7 @@ class TestUsersSeeder extends Seeder
         }
 
         // Usuario Cliente 3
-        $cliente3 = User::firstOrCreate(
+        \App\Models\User::query()->updateOrInsert(
             ['email' => 'ana@cliente.com'],
             [
                 'name' => 'Ana López',
@@ -182,6 +194,7 @@ class TestUsersSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
+        $cliente3 = User::where('email', 'ana@cliente.com')->first();
 
         if ($clienteRole && !$cliente3->hasRole('cliente')) {
             $cliente3->roles()->attach($clienteRole->id);
@@ -199,12 +212,13 @@ class TestUsersSeeder extends Seeder
 
         try {
             if (Schema::hasColumn('clientes', 'user_id')) {
-                    Cliente::firstOrCreate(
+                    \App\Models\Cliente::query()->updateOrInsert(
                         ['user_id' => $cliente3->id],
                         array_merge($clienteData3, ['user_id' => $cliente3->id, 'email' => $cliente3->email])
                     );
                 } else {
-                    Cliente::firstOrCreate(
+                    // Fallback for older schema: use query builder upsert to avoid nested transactions
+                    \App\Models\Cliente::query()->updateOrInsert(
                         ['email' => 'ana@cliente.com'],
                         $clienteData3
                     );

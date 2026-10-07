@@ -8,9 +8,14 @@ use App\Models\MateriaPrima;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use App\Support\SafeTransaction;
+use App\Support\MensajeError;
+use App\Http\Controllers\Concerns\ListadoSeguro;
 
 class RecetaController extends Controller
 {
+    use ListadoSeguro;
+
     /**
      * Listar todas las recetas
      */
@@ -38,7 +43,7 @@ class RecetaController extends Controller
         }
 
         $recetas = $query->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 15));
+            ->paginate($this->porPagina($request, 15));
 
         return response()->json($recetas);
     }
@@ -69,33 +74,52 @@ class RecetaController extends Controller
         }
 
         try {
-            DB::beginTransaction();
-
-            // Crear receta
-            $receta = Receta::create([
-                'producto_id' => $request->producto_id,
-                'nombre_receta' => $request->nombre_receta,
-                'descripcion' => $request->descripcion,
-                'rendimiento' => $request->rendimiento,
-                'unidad_rendimiento' => $request->unidad_rendimiento,
-                'activa' => true,
-                'version' => 1
-            ]);
-
-            // Agregar ingredientes
-            foreach ($request->ingredientes as $index => $ingrediente) {
-                $receta->ingredientes()->create([
-                    'materia_prima_id' => $ingrediente['materia_prima_id'],
-                    'cantidad' => $ingrediente['cantidad'],
-                    'unidad' => $ingrediente['unidad'],
-                    'orden' => $ingrediente['orden'] ?? ($index + 1)
+            $receta = SafeTransaction::run(function () use ($request) {
+                // Crear receta
+                $receta = Receta::create([
+                    'producto_id' => $request->producto_id,
+                    'nombre_receta' => $request->nombre_receta,
+                    'descripcion' => $request->descripcion,
+                    'rendimiento' => $request->rendimiento,
+                    'unidad_rendimiento' => $request->unidad_rendimiento,
+                    'activa' => true,
+                    'version' => 1
                 ]);
-            }
 
-            // Calcular costos
-            $receta->calcularCostos();
+                // Agregar ingredientes (aceptar variantes en el payload y saneamiento)
+                foreach ($request->ingredientes as $index => $ingrediente) {
+                    // Soporta varios nombres de campo que puedan venir desde el frontend
+                    $mpId = $ingrediente['materia_prima_id'] ?? ($ingrediente['materia_prima']['id'] ?? null);
+                    $cantidadRaw = $ingrediente['cantidad'] ?? ($ingrediente['cantidad_necesaria'] ?? ($ingrediente['cantidad_receta'] ?? 0));
+                    $unidad = $ingrediente['unidad'] ?? ($ingrediente['unidad_medida'] ?? null);
 
-            DB::commit();
+                    // Normalizar y validar mínimos
+                    $cantidad = is_numeric($cantidadRaw) ? (float) $cantidadRaw : 0;
+                    if (!$mpId || $cantidad <= 0) {
+                        // Saltar ingredientes inválidos para no romper la creación; loguear para depuración
+                        
+                        continue;
+                    }
+
+                    // Si no se indicó unidad intentar obtenerla desde la materia prima
+                    if (!$unidad) {
+                        $mp = MateriaPrima::find($mpId);
+                        $unidad = $mp?->unidad_medida ?? 'kg';
+                    }
+
+                    $receta->ingredientes()->create([
+                        'materia_prima_id' => $mpId,
+                        'cantidad' => round($cantidad, 6),
+                        'unidad' => $unidad,
+                        'orden' => $ingrediente['orden'] ?? ($index + 1)
+                    ]);
+                }
+
+                // Calcular costos
+                $receta->calcularCostos();
+
+                return $receta;
+            });
 
             return response()->json([
                 'message' => 'Receta creada exitosamente',
@@ -103,9 +127,8 @@ class RecetaController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
-                'message' => 'Error al crear receta: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al crear receta')
             ], 500);
         }
     }
@@ -158,33 +181,47 @@ class RecetaController extends Controller
         }
 
         try {
-            DB::beginTransaction();
+            $updated = SafeTransaction::run(function () use ($receta, $request) {
+                // Si hay cambios en ingredientes, crear nueva versión
+                if ($request->has('ingredientes')) {
+                    $receta->update(['version' => $receta->version + 1]);
+                    
+                    // Eliminar ingredientes anteriores
+                    $receta->ingredientes()->delete();
+                    
+                    // Agregar nuevos ingredientes
+                    foreach ($request->ingredientes as $index => $ingrediente) {
+                        $mpId = $ingrediente['materia_prima_id'] ?? ($ingrediente['materia_prima']['id'] ?? null);
+                        $cantidadRaw = $ingrediente['cantidad'] ?? ($ingrediente['cantidad_necesaria'] ?? ($ingrediente['cantidad_receta'] ?? 0));
+                        $unidad = $ingrediente['unidad'] ?? ($ingrediente['unidad_medida'] ?? null);
 
-            // Si hay cambios en ingredientes, crear nueva versión
-            if ($request->has('ingredientes')) {
-                $receta->update(['version' => $receta->version + 1]);
-                
-                // Eliminar ingredientes anteriores
-                $receta->ingredientes()->delete();
-                
-                // Agregar nuevos ingredientes
-                foreach ($request->ingredientes as $index => $ingrediente) {
-                    $receta->ingredientes()->create([
-                        'materia_prima_id' => $ingrediente['materia_prima_id'],
-                        'cantidad' => $ingrediente['cantidad'],
-                        'unidad' => $ingrediente['unidad'],
-                        'orden' => $ingrediente['orden'] ?? ($index + 1)
-                    ]);
+                        $cantidad = is_numeric($cantidadRaw) ? (float) $cantidadRaw : 0;
+                        if (!$mpId || $cantidad <= 0) {
+                            continue;
+                        }
+
+                        if (!$unidad) {
+                            $mp = MateriaPrima::find($mpId);
+                            $unidad = $mp?->unidad_medida ?? 'kg';
+                        }
+
+                        $receta->ingredientes()->create([
+                            'materia_prima_id' => $mpId,
+                            'cantidad' => round($cantidad, 6),
+                            'unidad' => $unidad,
+                            'orden' => $ingrediente['orden'] ?? ($index + 1)
+                        ]);
+                    }
                 }
-            }
 
-            // Actualizar otros campos
-            $receta->update($request->except(['ingredientes', 'producto_id']));
+                // Actualizar otros campos
+                $receta->update($request->except(['ingredientes', 'producto_id']));
 
-            // Recalcular costos
-            $receta->calcularCostos();
+                // Recalcular costos
+                $receta->calcularCostos();
 
-            DB::commit();
+                return true;
+            });
 
             return response()->json([
                 'message' => 'Receta actualizada exitosamente',
@@ -192,9 +229,8 @@ class RecetaController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
-                'message' => 'Error al actualizar receta: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al actualizar receta')
             ], 500);
         }
     }
@@ -300,7 +336,7 @@ class RecetaController extends Controller
 
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al recalcular costos: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al recalcular costos')
             ], 500);
         }
     }
@@ -325,33 +361,33 @@ class RecetaController extends Controller
         }
 
         try {
-            DB::beginTransaction();
-
-            // Crear nueva receta
-            $nuevaReceta = Receta::create([
-                'producto_id' => $request->producto_id ?? $recetaOriginal->producto_id,
-                'nombre_receta' => $request->nombre_receta,
-                'descripcion' => $recetaOriginal->descripcion,
-                'rendimiento' => $recetaOriginal->rendimiento,
-                'unidad_rendimiento' => $recetaOriginal->unidad_rendimiento,
-                'activa' => false, // Crear desactivada para revisión
-                'version' => 1
-            ]);
-
-            // Copiar ingredientes
-            foreach ($recetaOriginal->ingredientes as $ingrediente) {
-                $nuevaReceta->ingredientes()->create([
-                    'materia_prima_id' => $ingrediente->materia_prima_id,
-                    'cantidad' => $ingrediente->cantidad,
-                    'unidad' => $ingrediente->unidad,
-                    'orden' => $ingrediente->orden
+            $nuevaReceta = SafeTransaction::run(function () use ($recetaOriginal, $request) {
+                // Crear nueva receta
+                $nuevaReceta = Receta::create([
+                    'producto_id' => $request->producto_id ?? $recetaOriginal->producto_id,
+                    'nombre_receta' => $request->nombre_receta,
+                    'descripcion' => $recetaOriginal->descripcion,
+                    'rendimiento' => $recetaOriginal->rendimiento,
+                    'unidad_rendimiento' => $recetaOriginal->unidad_rendimiento,
+                    'activa' => false, // Crear desactivada para revisión
+                    'version' => 1
                 ]);
-            }
 
-            // Calcular costos
-            $nuevaReceta->calcularCostos();
+                // Copiar ingredientes
+                foreach ($recetaOriginal->ingredientes as $ingrediente) {
+                    $nuevaReceta->ingredientes()->create([
+                        'materia_prima_id' => $ingrediente->materia_prima_id,
+                        'cantidad' => $ingrediente->cantidad,
+                        'unidad' => $ingrediente->unidad,
+                        'orden' => $ingrediente->orden
+                    ]);
+                }
 
-            DB::commit();
+                // Calcular costos
+                $nuevaReceta->calcularCostos();
+
+                return $nuevaReceta;
+            });
 
             return response()->json([
                 'message' => 'Receta duplicada exitosamente',
@@ -359,9 +395,8 @@ class RecetaController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
-                'message' => 'Error al duplicar receta: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al duplicar receta')
             ], 500);
         }
     }

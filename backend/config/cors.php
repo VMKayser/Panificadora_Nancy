@@ -20,8 +20,22 @@ return [
     // Limitar métodos permitidos en lugar de usar '*'
     'allowed_methods' => ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 
-    // Origen del frontend (configurable vía FRONTEND_URL en .env)
-    'allowed_origins' => [env('FRONTEND_URL', 'http://localhost:5174')],
+    // Orígenes permitidos (configurable vía CORS_ALLOWED_ORIGINS en .env)
+    // Puede ser una lista separada por comas o '*' para permitir todos en desarrollo.
+    // Solo los dominios reales; los de desarrollo (Vite) únicamente fuera de producción.
+    // CORS_EXTRA_ORIGINS permite añadir orígenes separados por comas sin tocar el código.
+    'allowed_origins' => array_values(array_unique(array_filter(array_merge(
+        [
+            env('FRONTEND_URL', 'https://panificadoranancy.com'),
+            'https://panificadoranancy.com',
+            'https://www.panificadoranancy.com',
+        ],
+        env('APP_ENV', 'production') === 'production' ? [] : [
+            'http://localhost:5173',
+            'http://localhost:5174',
+        ],
+        array_map('trim', explode(',', (string) env('CORS_EXTRA_ORIGINS', '')))
+    )))),
 
     'allowed_origins_patterns' => [],
 

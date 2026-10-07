@@ -32,7 +32,7 @@ class RoleSeeder extends Seeder
         ];
 
         foreach ($roles as $role) {
-            Role::firstOrCreate(
+            Role::query()->updateOrInsert(
                 ['name' => $role['name']],
                 ['description' => $role['description']]
             );

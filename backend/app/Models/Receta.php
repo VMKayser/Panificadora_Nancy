@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
 class Receta extends Model
 {
+    use HasFactory;
     use SoftDeletes;
 
     protected $fillable = [
@@ -97,35 +99,67 @@ class Receta extends Model
      */
     private function convertirAUnidadBase($cantidad, $unidad_origen, $unidad_destino)
     {
-        // Si son iguales, no convertir
-        if ($unidad_origen === $unidad_destino) {
+        try {
+            return self::convertirUnidad($cantidad, $unidad_origen, $unidad_destino);
+        } catch (\InvalidArgumentException $e) {
+            throw new \Exception($e->getMessage());
+        }
+    }
+
+    /**
+     * Convierte una cantidad de ingrediente a la unidad en que se lleva el stock
+     * de la materia prima (g<->kg, ml<->L). Sin unidad de origen se asume la
+     * misma de la materia prima.
+     */
+    public static function convertirUnidad($cantidad, ?string $unidadOrigen, ?string $unidadDestino): float
+    {
+        $cantidad = (float) $cantidad;
+        if (!$unidadOrigen || !$unidadDestino || $unidadOrigen === $unidadDestino) {
             return $cantidad;
         }
 
-        // Conversiones de peso
-        if ($unidad_origen === 'g' && $unidad_destino === 'kg') {
-            return $cantidad / 1000;
-        }
-        if ($unidad_origen === 'kg' && $unidad_destino === 'g') {
-            return $cantidad * 1000;
-        }
-
-        // Conversiones de volumen
-        if ($unidad_origen === 'ml' && $unidad_destino === 'L') {
-            return $cantidad / 1000;
-        }
-        if ($unidad_origen === 'L' && $unidad_destino === 'ml') {
-            return $cantidad * 1000;
+        $factores = [
+            'g' => ['kg', 0.001],
+            'kg' => ['g', 1000],
+            'ml' => ['L', 0.001],
+            'L' => ['ml', 1000],
+        ];
+        if (isset($factores[$unidadOrigen]) && $factores[$unidadOrigen][0] === $unidadDestino) {
+            return $cantidad * $factores[$unidadOrigen][1];
         }
 
-        // Si no hay conversión disponible, lanzar excepción
-        throw new \Exception("No se puede convertir de {$unidad_origen} a {$unidad_destino}");
+        throw new \InvalidArgumentException("No se puede convertir de {$unidadOrigen} a {$unidadDestino}");
+    }
+
+    /** Las docenas se llevan en el stock como unidades. */
+    public static function aUnidadesStock(float $cantidad, ?string $unidad): float
+    {
+        return $unidad === 'docenas' ? $cantidad * 12 : $cantidad;
+    }
+
+    /**
+     * Cuántas veces se hace la receta para producir $cantidad en $unidad
+     * (unidades, docenas o kg). Unidades y docenas se convierten entre sí;
+     * kg solo es compatible con recetas que rinden en kg.
+     */
+    public function factorPara(float $cantidad, ?string $unidad = null): float
+    {
+        $unidadReceta = $this->unidad_rendimiento ?: 'unidades';
+        $unidad = $unidad ?: $unidadReceta;
+
+        if (($unidad === 'kg') !== ($unidadReceta === 'kg')) {
+            throw new \InvalidArgumentException(
+                "La receta rinde en {$unidadReceta} y la producción se registró en {$unidad}. Registra la producción en la misma unidad que la receta."
+            );
+        }
+
+        return self::aUnidadesStock($cantidad, $unidad) / self::aUnidadesStock((float) $this->rendimiento, $unidadReceta);
     }
 
     /**
      * Verificar si hay suficientes ingredientes en stock
      */
-    public function verificarStock($cantidad_producir)
+    public function verificarStock($cantidad_producir, ?string $unidad = null)
     {
         // Validaciones
         if ($cantidad_producir <= 0) {
@@ -139,6 +173,7 @@ class Receta extends Model
         // Cargar ingredientes con materia prima (evitar N+1)
         $this->load('ingredientes.materiaPrima');
 
+        $factor = $this->factorPara((float) $cantidad_producir, $unidad);
         $faltantes = [];
 
         foreach ($this->ingredientes as $ingrediente) {
@@ -148,7 +183,10 @@ class Receta extends Model
                 throw new \Exception("Materia prima no encontrada para ingrediente ID: {$ingrediente->id}");
             }
 
-            $cantidad_necesaria = round(($ingrediente->cantidad / $this->rendimiento) * $cantidad_producir, 3);
+            $cantidad_necesaria = round(
+                self::convertirUnidad($ingrediente->cantidad, $ingrediente->unidad, $materia_prima->unidad_medida) * $factor,
+                3
+            );
 
             if (!$materia_prima->tieneStock($cantidad_necesaria)) {
                 $faltantes[] = [

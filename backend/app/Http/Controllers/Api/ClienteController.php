@@ -7,9 +7,12 @@ use App\Models\Cliente;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Schema;
+use App\Http\Controllers\Concerns\ListadoSeguro;
 
 class ClienteController extends Controller
 {
+    use ListadoSeguro;
+
     /**
      * Lista de clientes con filtros y paginación
      */
@@ -40,12 +43,11 @@ class ClienteController extends Controller
         }
 
         // Ordenamiento
-        $sortBy = $request->get('sort_by', 'created_at');
-        $sortOrder = $request->get('sort_order', 'desc');
+        [$sortBy, $sortOrder] = $this->ordenSeguro($request, 'clientes', 'created_at', 'desc');
         $query->orderBy($sortBy, $sortOrder);
 
         // Paginación
-        $perPage = $request->get('per_page', 15);
+        $perPage = $this->porPagina($request, 15, 100);
         $clientes = $query->with('pedidos')->paginate($perPage);
 
         return response()->json($clientes);

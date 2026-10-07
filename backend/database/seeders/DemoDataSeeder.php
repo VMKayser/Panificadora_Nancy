@@ -19,7 +19,8 @@ class DemoDataSeeder extends Seeder
     public function run(): void
     {
         // Safety: only run in local/dev environment unless explicitly called
-        if (!app()->environment('local') && !($this->command && $this->command->option('force'))) {
+        // En producción nunca (db:seed --force es obligatorio allí, así que no sirve de guarda).
+        if (app()->environment('production') || (!app()->environment('local') && !($this->command && $this->command->option('force')))) {
             $this->command->info('DemoDataSeeder skipped: not running in local environment. Run with --force to override.');
             return;
         }
@@ -29,26 +30,32 @@ class DemoDataSeeder extends Seeder
             $categorias = [];
             $names = ['Panes', 'Bolleria', 'Tortas', 'Dulces', 'Bebidas'];
             foreach ($names as $i => $name) {
-                $categorias[$i] = Categoria::firstOrCreate(
+                Categoria::query()->updateOrInsert(
                     ['nombre' => $name],
                     ['url' => strtolower(str_replace(' ', '-', $name)), 'descripcion' => "$name de ejemplo", 'esta_activo' => true, 'orden' => $i+1]
                 );
+                $categorias[$i] = Categoria::where('nombre', $name)->first();
             }
 
             // Metodos de pago
             // Solo Efectivo y un metodo QR (requerimiento)
             $metodos = [
-                ['nombre' => 'Efectivo', 'codigo' => 'efectivo'],
-                ['nombre' => 'QR (Tigo Money)', 'codigo' => 'qr-tigo'],
+                ['nombre' => 'Efectivo', 'codigo' => 'efectivo', 'esta_activo' => true],
+                ['nombre' => 'QR (Tigo Money)', 'codigo' => 'qr-tigo', 'esta_activo' => true],
             ];
-            foreach ($metodos as $m) {
-                MetodoPago::firstOrCreate(['codigo' => $m['codigo']], ['nombre' => $m['nombre'], 'codigo' => $m['codigo'], 'esta_activo' => true]);
-            }
+
+            // Use an atomic upsert to make this idempotent and avoid race conditions
+            // where a select-then-insert could cause duplicate-key errors.
+            DB::table('metodos_pago')->upsert(
+                $metodos,
+                ['codigo'],
+                ['nombre', 'esta_activo']
+            );
 
             // Materias primas
             $materias = ['Harina', 'Azucar', 'Levadura', 'Manteca', 'Sal'];
             foreach ($materias as $mat) {
-                MateriaPrima::firstOrCreate(['nombre' => $mat], ['unidad_medida' => 'kg', 'stock_actual' => 100.0, 'activo' => true]);
+                MateriaPrima::query()->updateOrInsert(['nombre' => $mat], ['unidad_medida' => 'kg', 'stock_actual' => 100.0, 'activo' => true]);
             }
 
             // Productos (small sample)
@@ -63,7 +70,7 @@ class DemoDataSeeder extends Seeder
             foreach ($samples as $s) {
                 $cat = $categorias[$s['categoria']] ?? $categorias[0];
                 $slug = strtolower(str_replace([' ', '/'], ['-', '-'], $s['nombre']));
-                $producto = Producto::firstOrCreate(
+                Producto::query()->updateOrInsert(
                     ['nombre' => $s['nombre']],
                     [
                         'categorias_id' => $cat->id,
@@ -79,15 +86,16 @@ class DemoDataSeeder extends Seeder
                         'esta_activo' => true,
                     ]
                 );
+                $producto = Producto::where('nombre', $s['nombre'])->first();
 
                 // Inventario para el producto
-                InventarioProductoFinal::firstOrCreate(
+                InventarioProductoFinal::query()->updateOrInsert(
                     ['producto_id' => $producto->id],
                     ['stock_actual' => 50, 'stock_minimo' => 5]
                 );
 
                 // Imagen de ejemplo
-                ImagenProducto::firstOrCreate(
+                ImagenProducto::query()->updateOrInsert(
                     ['producto_id' => $producto->id],
                     ['url_imagen' => '/storage/sample-products/' . strtolower(str_replace(' ', '-', $producto->nombre)) . '.jpg', 'es_imagen_principal' => true]
                 );

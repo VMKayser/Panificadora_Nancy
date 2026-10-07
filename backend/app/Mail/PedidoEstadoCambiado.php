@@ -29,7 +29,7 @@ class PedidoEstadoCambiado extends Mailable
         $estadoTexto = match($this->pedido->estado) {
             'pendiente' => '⏳ Pendiente',
             'confirmado' => '✅ Confirmado',
-            'preparando' => '👨‍🍳 Preparando',
+            'en_preparacion' => '👨‍🍳 En preparación',
             'listo' => '✨ Listo',
             'en_camino' => '🚗 En Camino',
             'entregado' => '📦 Entregado',

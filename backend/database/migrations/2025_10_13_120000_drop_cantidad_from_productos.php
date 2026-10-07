@@ -17,9 +17,13 @@ return new class extends Migration
         // Note: avoid wrapping schema operations in DB transactions because some drivers do not support it.
         // Insert inventory rows for products that lack them, using productos.cantidad as seed value.
         try {
+            // Use CURRENT_TIMESTAMP for SQLite compatibility instead of NOW()
+            $driver = DB::connection()->getDriverName();
+            $timestamp = $driver === 'sqlite' ? "datetime('now')" : 'NOW()';
+            
             DB::statement(
                 "INSERT INTO inventario_productos_finales (producto_id, stock_actual, stock_minimo, costo_promedio, created_at, updated_at)
-                 SELECT p.id, COALESCE(p.cantidad, 0), 0, p.precio_minorista, NOW(), NOW()
+                 SELECT p.id, COALESCE(p.cantidad, 0), 0, p.precio_minorista, {$timestamp}, {$timestamp}
                  FROM productos p
                  LEFT JOIN inventario_productos_finales i ON i.producto_id = p.id
                  WHERE i.producto_id IS NULL"

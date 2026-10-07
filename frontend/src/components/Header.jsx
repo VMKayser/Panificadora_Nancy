@@ -1,125 +1,125 @@
-import { Navbar, Nav, Container, Badge, NavDropdown } from 'react-bootstrap';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Navbar, Nav, Container, Offcanvas } from 'react-bootstrap';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Menu, ShoppingBag, User } from 'lucide-react';
+import { toast } from 'react-toastify';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
-import { useState } from 'react';
-import { toast } from 'react-toastify';
-import { Home, ShoppingCart, Phone, Info, DollarSign, Settings, User, Edit, Package as PackageIcon, LogOut, LogIn } from 'lucide-react';
+import { useSiteConfig } from '../context/SiteConfigContext';
 import CartDrawer from './CartDrawer';
+import UserDropdown from './UserDropdown';
 
 const Header = () => {
   const { getTotalItems } = useCart();
-  const { user, logout, isAdmin, isVendedor } = useAuth();
+  const { user, logout, isAdmin, isVendedor, isPanadero } = useAuth();
+  const { logoChico } = useSiteConfig();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const cartItemsCount = getTotalItems();
   const [showCart, setShowCart] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  const handleOpenCart = (e) => {
-    e.preventDefault();
+  // Cerrar el menú lateral al cambiar de página
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
+  const openCart = () => {
+    setMenuOpen(false);
     setShowCart(true);
   };
-  const handleCloseCart = () => setShowCart(false);
 
   const handleLogout = async () => {
+    setMenuOpen(false);
     await logout();
     toast.success('Sesión cerrada exitosamente');
     navigate('/');
   };
 
+  const esEquipo = isAdmin || isVendedor || isPanadero;
+
+  const cartButton = (
+    <button type="button" className="pn-iconbtn" onClick={openCart} aria-label="Abrir carrito">
+      <ShoppingBag size={22} />
+      {cartItemsCount > 0 && (
+        // key: al cambiar la cantidad el globo se vuelve a montar y repite la animación
+        <span className="pn-badge" key={cartItemsCount}>
+          {cartItemsCount}
+          <span className="pn-visually-hidden"> productos</span>
+        </span>
+      )}
+    </button>
+  );
+
   return (
-    <Navbar bg="light" expand="lg" sticky="top" className="shadow-sm">
-      <Container>
-        {/* Logo: usar archivo local en public/images/logo.jpg */}
-        <Navbar.Brand as={Link} to="/" className="d-flex align-items-center">
-          <img
-            src={`${import.meta.env.BASE_URL}images/logo.jpg`}
-            className="site-logo d-inline-block align-top"
-            alt="Panificadora Nancy"
-          />
-          <span className="ms-2 fw-bold" style={{ color: 'rgb(145, 109, 74)' }}>
-            Panificadora Nancy
-          </span>
-        </Navbar.Brand>
+    <>
+      <Navbar expand="lg" sticky="top" className="pn-header" expanded={menuOpen} onToggle={setMenuOpen}>
+        <Container fluid className="pn-wrap pn-header__inner">
+          <Navbar.Brand as={Link} to="/" className="pn-brand">
+            <img src={logoChico} alt="" width="48" height="48" />
+            <span>Panificadora Nancy</span>
+          </Navbar.Brand>
 
-        {/* Toggle para móvil */}
-        <Navbar.Toggle aria-controls="navbar-nav" />
+          <div className="pn-header__actions d-lg-none">
+            {cartButton}
+            <Navbar.Toggle aria-controls="pn-menu" className="pn-iconbtn" aria-label="Abrir menú">
+              <Menu size={24} />
+            </Navbar.Toggle>
+          </div>
 
-        <Navbar.Collapse id="navbar-nav">
-          {/* Links de navegación */}
-          <Nav className="ms-auto align-items-center">
-            <Nav.Link as={Link} to="/" className="mx-2">
-              🏠 Inicio
-            </Nav.Link>
-            <Nav.Link as={Link} to="/productos" className="mx-2">
-              🍞 Productos
-            </Nav.Link>
-            <Nav.Link as={Link} to="/contacto" className="mx-2">
-              📞 Contáctanos
-            </Nav.Link>
-            <Nav.Link as={Link} to="/nosotros" className="mx-2">
-              ℹ️ Nosotros
-            </Nav.Link>
-            
-            {/* Carrito con badge - siempre visible en móvil (d-flex en sm) */}
-            <Nav.Link href="#" onClick={handleOpenCart} className="mx-2 position-relative d-flex align-items-center">
-              <span className="d-md-none">🛒</span>
-              <span className="d-none d-md-inline">🛒 Carrito</span>
-              {cartItemsCount > 0 && (
-                <Badge 
-                  bg="danger" 
-                  pill 
-                  className="position-absolute top-0 start-100 translate-middle"
-                >
-                  {cartItemsCount}
-                </Badge>
-              )}
-            </Nav.Link>
+          <Navbar.Offcanvas id="pn-menu" placement="end" className="pn-menu" aria-labelledby="pn-menu-title">
+            <Offcanvas.Header closeButton>
+              <Offcanvas.Title id="pn-menu-title">Panificadora Nancy</Offcanvas.Title>
+            </Offcanvas.Header>
+            <Offcanvas.Body>
+              <Nav className="pn-nav ms-lg-auto">
+                <Nav.Link as={NavLink} to="/" end>Inicio</Nav.Link>
+                <Nav.Link as={NavLink} to="/productos">Productos</Nav.Link>
+                <Nav.Link as={NavLink} to="/nosotros">Nosotros</Nav.Link>
+                <Nav.Link as={NavLink} to="/contacto">Contacto</Nav.Link>
 
-            {/* Drawer del carrito */}
-            <CartDrawer show={showCart} onHide={handleCloseCart} />
+                {esEquipo && (
+                  <>
+                    <div className="pn-nav__group">Equipo</div>
+                    <span className="pn-nav__sep d-none d-lg-block" aria-hidden="true" />
+                    {(isAdmin || isVendedor) && <Nav.Link as={NavLink} to="/vendedor">Punto de Venta</Nav.Link>}
+                    {(isAdmin || isPanadero) && <Nav.Link as={NavLink} to="/panadero/produccion">Producción</Nav.Link>}
+                    {isAdmin && <Nav.Link as={NavLink} to="/admin">Panel Admin</Nav.Link>}
+                  </>
+                )}
 
-            {/* Panel de Vendedor - Solo para vendedor y admin */}
-            {(isAdmin || isVendedor) && (
-              <Nav.Link as={Link} to="/vendedor" className="mx-2">
-                💰 Punto de Venta
-              </Nav.Link>
-            )}
+                <span className="pn-nav__sep d-none d-lg-block" aria-hidden="true" />
 
-            {/* Admin Button - Solo para admin */}
-            {isAdmin && (
-              <Nav.Link as={Link} to="/admin" className="mx-2">
-                ⚙️ Panel Admin
-              </Nav.Link>
-            )}
+                {user ? (
+                  <>
+                    <div className="d-lg-none">
+                      <div className="pn-nav__group">Hola, {user.name}</div>
+                      <Nav.Link as={NavLink} to="/mis-pedidos">Mis Pedidos</Nav.Link>
+                      <Nav.Link as={NavLink} to="/perfil">Mi Perfil</Nav.Link>
+                      <Nav.Link as="button" type="button" onClick={handleLogout} className="w-100">Cerrar Sesión</Nav.Link>
+                    </div>
+                    <div className="d-none d-lg-block">
+                      <UserDropdown user={user} onLogout={handleLogout} />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="pn-nav__group">Tu cuenta</div>
+                    <Nav.Link as={NavLink} to="/login"><User size={18} /> Iniciar Sesión</Nav.Link>
+                    <Link to="/register" className="pn-btn pn-btn--primary pn-nav__register">Registrarse</Link>
+                  </>
+                )}
 
-            {/* Usuario autenticado o Login */}
-            {user ? (
-              <NavDropdown title={`👤 ${user.name}`} id="user-dropdown" className="mx-2">
-                <NavDropdown.Item as={Link} to="/perfil">
-                  ✏️ Mi Perfil
-                </NavDropdown.Item>
-                <NavDropdown.Item as={Link} to="/mis-pedidos">
-                  📦 Mis Pedidos
-                </NavDropdown.Item>
-                <NavDropdown.Divider />
-                <NavDropdown.Item onClick={handleLogout}>
-                  🚪 Cerrar Sesión
-                </NavDropdown.Item>
-              </NavDropdown>
-            ) : (
-              <>
-                <Nav.Link as={Link} to="/login" className="mx-2">
-                  � Iniciar Sesión
-                </Nav.Link>
-                <Link to="/register" className="btn btn-sm text-white ms-2" style={{ backgroundColor: '#8b6f47', border: 'none' }}>
-                  Registrarse
-                </Link>
-              </>
-            )}
-          </Nav>
-        </Navbar.Collapse>
-      </Container>
-    </Navbar>
+                <div className="d-none d-lg-block ms-2">{cartButton}</div>
+              </Nav>
+            </Offcanvas.Body>
+          </Navbar.Offcanvas>
+        </Container>
+      </Navbar>
+
+      {/* Fuera del Navbar: dentro, react-bootstrap lo trataría como el menú de navegación */}
+      <CartDrawer show={showCart} onHide={() => setShowCart(false)} />
+    </>
   );
 };
 

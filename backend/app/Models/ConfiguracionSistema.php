@@ -56,7 +56,8 @@ class ConfiguracionSistema extends Model
      */
     public static function set($clave, $valor, $tipo = 'texto', $descripcion = null, $grupo = null)
     {
-        return self::updateOrCreate(
+        // Prefer updateOrInsert to avoid model events/nested savepoints. Then return the fresh model.
+        self::query()->updateOrInsert(
             ['clave' => $clave],
             [
                 'valor' => $valor,
@@ -65,5 +66,7 @@ class ConfiguracionSistema extends Model
                 'grupo' => $grupo
             ]
         );
+
+        return self::where('clave', $clave)->first();
     }
 }

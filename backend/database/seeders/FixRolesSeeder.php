@@ -26,8 +26,9 @@ class FixRolesSeeder extends Seeder
             $roles = ['admin', 'vendedor', 'cliente', 'panadero'];
             $roleIds = [];
             foreach ($roles as $name) {
-                $role = Role::firstOrCreate(['name' => $name], ['display_name' => ucfirst($name)]);
-                $roleIds[$name] = $role->id;
+                Role::query()->updateOrInsert(['name' => $name], ['display_name' => ucfirst($name)]);
+                $r = Role::where('name', $name)->first();
+                $roleIds[$name] = $r ? $r->id : null;
             }
 
             // Assign pivot role_user for panaderos

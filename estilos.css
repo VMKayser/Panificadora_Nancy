@@ -340,3 +340,51 @@ footer{
     right: 25px;
     top: 20px;
 }
+
+/* Category scroller styles (Home) */
+.category-scroller {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.category-scroller .scroller {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  padding: 6px 12px;
+  scroll-padding-left: 16px; /* evita que el primer elemento se corte */
+}
+.category-scroller .scroller-inner {
+  display: inline-flex;
+  gap: 20px; /* aumentar espacio entre botones para mejor legibilidad */
+  align-items: center;
+}
+.category-scroller .scroller-inner > * { white-space: nowrap; }
+
+/* En pantallas medianas y grandes centramos el grupo y reducimos padding lateral */
+@media (min-width: 768px) {
+  .category-scroller .scroller { padding: 8px 28px; }
+  .category-scroller { justify-content: center; }
+}
+
+/* Ajuste extra para botones dentro del scroller: más espacio interno para evitar que se vean apretados */
+.category-scroller .scroller-inner > .btn {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+/* Garantizar separación consistente entre botones (compatibilidad con Bootstrap) */
+.category-scroller .scroller-inner > .btn + .btn {
+  margin-left: 18px; /* espacio entre botones */
+}
+
+/* Forzar que los botones se comporten como elementos flexibles para respetar gap/margin */
+.category-scroller .scroller-inner > .btn {
+  display: inline-flex !important;
+  align-items: center;
+}
+
+/* Para pantallas muy pequeñas damos un poco más de espacio al inicio */
+@media (max-width: 480px) {
+  .category-scroller .scroller { padding-left: 18px; padding-right: 18px; }
+}

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
+use App\Support\PasswordPolicy;
 
 class UserController extends Controller
 {
@@ -79,11 +80,11 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
             // password optional: admin may provide or let system generate
-            'password' => 'sometimes|nullable|string|min:6',
+            'password' => array_merge(['sometimes', 'nullable'], PasswordPolicy::rules()),
             'role' => 'required|in:admin,vendedor,panadero,cliente',
             // allow admin to mark email as verified on creation
             'mark_verified' => 'sometimes|boolean'
-        ]);
+        ], PasswordPolicy::messages());
 
         if ($validator->fails()) {
             return response()->json([
@@ -144,10 +145,10 @@ class UserController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email|unique:users,email,' . $id,
-            'password' => 'sometimes|nullable|string|min:6',
+            'password' => array_merge(['sometimes', 'nullable'], PasswordPolicy::rules()),
             // Make role optional on partial updates: frontend may call update without sending role
             'role' => 'sometimes|in:admin,vendedor,panadero,cliente'
-        ]);
+        ], PasswordPolicy::messages());
 
         if ($validator->fails()) {
             return response()->json([

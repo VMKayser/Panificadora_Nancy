@@ -61,6 +61,10 @@
     <!-- Preconnect to External Resources -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap" />
+    <!-- Imagen principal de la portada: se pide junto con el JS en vez de esperar a React -->
+    <link rel="preload" as="image" type="image/webp" href="/images/cabecera-800.webp" media="(max-width: 767.98px)" fetchpriority="high" />
+    <link rel="preload" as="image" type="image/webp" href="/images/cabecera-1600.webp" media="(min-width: 768px)" fetchpriority="high" />
     
     <!-- DNS Prefetch -->
     <link rel="dns-prefetch" href="//fonts.googleapis.com" />
@@ -124,9 +128,8 @@
     }
     </script>
     
-    <!-- Performance Optimization -->
-    <link rel="preload" as="style" href="/src/index.css" />
-    <link rel="preload" as="script" href="/src/main.jsx" />
+    <!-- Performance Optimization: removed explicit preloads to avoid preload warnings in dev server
+      Vite/dev server handles module loading and modulepreload automatically. -->
     
     <!-- Google Analytics (placeholder) -->
     <!-- <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script> -->
@@ -158,5 +161,6 @@
     
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <!-- Chart.js from CDN (client-side rendering) -->
   </body>
 </html>

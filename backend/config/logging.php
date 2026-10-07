@@ -73,6 +73,16 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Eventos de seguridad (logins fallidos, accesos denegados, cambios
+        // sensibles). Archivo aparte para revisarlo y retenerlo sin el ruido de negocio.
+        'security' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/security.log'),
+            'level' => 'info',
+            'days' => env('LOG_SECURITY_DAYS', 90),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

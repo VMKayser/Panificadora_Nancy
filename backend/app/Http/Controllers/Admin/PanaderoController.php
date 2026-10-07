@@ -9,9 +9,13 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use App\Support\PasswordPolicy;
+use App\Http\Controllers\Concerns\ListadoSeguro;
 
 class PanaderoController extends Controller
 {
+    use ListadoSeguro;
+
     /**
      * Listar todos los panaderos
      */
@@ -43,12 +47,11 @@ class PanaderoController extends Controller
         }
 
         // Ordenamiento
-        $sortBy = $request->get('sort_by', 'created_at');
-        $sortOrder = $request->get('sort_order', 'desc');
+        [$sortBy, $sortOrder] = $this->ordenSeguro($request, 'panaderos', 'created_at', 'desc');
         $query->orderBy($sortBy, $sortOrder);
 
         // Paginación
-        $perPage = $request->get('per_page', 15);
+        $perPage = $this->porPagina($request, 15, 100);
         $panaderos = $query->paginate($perPage);
 
         return response()->json($panaderos);
@@ -75,7 +78,7 @@ class PanaderoController extends Controller
             // Email no debe ser unique: puede existir si estamos convirtiendo un user existente
             'email' => 'required|email|max:150',
             // optional admin-specified password (otherwise system generates)
-            'password' => 'sometimes|nullable|string|min:6',
+            'password' => array_merge(['sometimes', 'nullable'], PasswordPolicy::rules()),
             'mark_verified' => 'sometimes|boolean',
             'telefono' => 'required|string|max:20',
             'ci' => 'required|string|max:20|unique:panaderos,ci',
@@ -86,7 +89,7 @@ class PanaderoController extends Controller
             'salario_base' => 'required|numeric|min:0',
             'salario_por_kilo' => 'sometimes|numeric|min:0',
             'observaciones' => 'sometimes|nullable|string'
-        ], [
+        ], PasswordPolicy::messages() + [
             'nombre.required' => 'El nombre es obligatorio',
             'apellido.required' => 'El apellido es obligatorio',
             'email.required' => 'El email es obligatorio',
@@ -186,7 +189,7 @@ class PanaderoController extends Controller
             'salario_base' => 'sometimes|required|numeric|min:0',
             'salario_por_kilo' => 'sometimes|numeric|min:0',
             'activo' => 'sometimes|boolean',
-            'observaciones' => 'string'
+            'observaciones' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {

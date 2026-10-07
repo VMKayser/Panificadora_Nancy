@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, Badge, Alert, Spinner } from 'react-bootstrap';
+import { Table, Button, Modal, Form, Badge, Alert, Spinner, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
 
@@ -156,36 +156,49 @@ export default function CategoriasPanel() {
                   </Badge>
                 </td>
                                   <td>
-                    <Button
-                      variant="outline-primary"
-                      size="sm"
-                      className="me-2"
-                      onClick={() => handleEditar(cat)}
-                      title="Editar"
-                    >
-                      <i className="bi bi-pencil me-1"></i>
-                      Editar
-                    </Button>
-                    <Button
-                      variant={cat.esta_activo ? 'outline-warning' : 'outline-success'}
-                      size="sm"
-                      className="me-2"
-                      onClick={() => handleToggleActive(cat.id)}
-                      title={cat.esta_activo ? 'Desactivar' : 'Activar'}
-                    >
-                      <i className={`bi bi-${cat.esta_activo ? 'x-circle' : 'check-circle'} me-1`}></i>
-                      {cat.esta_activo ? 'Desactivar' : 'Activar'}
-                    </Button>
-                    <Button
-                      variant="outline-danger"
-                      size="sm"
-                      onClick={() => handleEliminar(cat.id, cat.nombre)}
-                      disabled={cat.productos_count > 0}
-                      title="Eliminar"
-                    >
-                      <i className="bi bi-trash me-1"></i>
-                      Eliminar
-                    </Button>
+                    <div className="d-flex flex-wrap gap-2">
+                      <Button
+                        variant="outline-primary"
+                        size="sm"
+                        onClick={() => handleEditar(cat)}
+                        title="Editar"
+                      >
+                        <i className="bi bi-pencil me-1"></i>
+                        Editar
+                      </Button>
+                      <Button
+                        variant={cat.esta_activo ? 'outline-warning' : 'outline-success'}
+                        size="sm"
+                        onClick={() => handleToggleActive(cat.id)}
+                        title={cat.esta_activo ? 'Desactivar' : 'Activar'}
+                      >
+                        <i className={`bi bi-${cat.esta_activo ? 'x-circle' : 'check-circle'} me-1`}></i>
+                        {cat.esta_activo ? 'Desactivar' : 'Activar'}
+                      </Button>
+                      <OverlayTrigger
+                        placement="top"
+                        overlay={
+                          <Tooltip id={`tooltip-eliminar-${cat.id}`}>
+                            {cat.productos_count > 0
+                              ? `No se puede eliminar. Tiene ${cat.productos_count} producto(s) asociado(s).`
+                              : 'Eliminar categoría'}
+                          </Tooltip>
+                        }
+                      >
+                        <span className="d-inline-block">
+                          <Button
+                            variant="outline-danger"
+                            size="sm"
+                            onClick={() => handleEliminar(cat.id, cat.nombre)}
+                            disabled={cat.productos_count > 0}
+                            aria-disabled={cat.productos_count > 0}
+                          >
+                            <i className="bi bi-trash me-1"></i>
+                            Eliminar
+                          </Button>
+                        </span>
+                      </OverlayTrigger>
+                    </div>
                   </td>
               </tr>
             ))}

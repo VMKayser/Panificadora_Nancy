@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ConfiguracionSistema;
+use App\Support\AssetUrl;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -57,15 +58,21 @@ class ConfiguracionController extends Controller
             ], 422);
         }
 
-        $config = ConfiguracionSistema::updateOrCreate(
+        $valor = $this->normalizeConfigValor($request->clave, $request->valor);
+
+        // Use query builder updateOrInsert to avoid firing model events / creating savepoints
+        ConfiguracionSistema::query()->updateOrInsert(
             ['clave' => $request->clave],
             [
-                'valor' => $request->valor,
+                'valor' => $valor,
                 'tipo' => $request->tipo,
                 'descripcion' => $request->descripcion,
                 'grupo' => $request->grupo
             ]
         );
+
+        // Fetch the model instance to return
+        $config = ConfiguracionSistema::where('clave', $request->clave)->first();
 
         return response()->json([
             'message' => 'Configuración guardada exitosamente',
@@ -87,10 +94,12 @@ class ConfiguracionController extends Controller
         }
 
         foreach ($configuraciones as $config) {
+            $valorNormalizado = $this->normalizeConfigValor($config['clave'], $config['valor'] ?? null);
+
             ConfiguracionSistema::updateOrCreate(
                 ['clave' => $config['clave']],
                 [
-                    'valor' => $config['valor'],
+                    'valor' => $valorNormalizado,
                     'tipo' => $config['tipo'] ?? 'texto',
                     'descripcion' => $config['descripcion'] ?? null,
                     'grupo' => $config['grupo'] ?? null
@@ -200,6 +209,20 @@ class ConfiguracionController extends Controller
                 'grupo' => 'sistema'
             ],
             [
+                'clave' => 'whatsapp_empresa',
+                'valor' => '+59176490687',
+                'tipo' => 'texto',
+                'descripcion' => 'Número de WhatsApp para envío de comprobantes',
+                'grupo' => 'sistema'
+            ],
+            [
+                'clave' => 'qr_mensaje_plantilla',
+                'valor' => 'Pago por pedido en {empresa} — Total: Bs {total}. Envía el comprobante a {whatsapp} con tu número de pedido {numero_pedido}.',
+                'tipo' => 'texto',
+                'descripcion' => 'Plantilla del mensaje que se copia al cliente cuando usa QR. Soporta {empresa},{total},{whatsapp},{numero_pedido}',
+                'grupo' => 'sistema'
+            ],
+            [
                 'clave' => 'direccion',
                 'valor' => 'Av. Martín Cardenas, Quillacollo, Cochabamba',
                 'tipo' => 'texto',
@@ -223,7 +246,8 @@ class ConfiguracionController extends Controller
         ];
 
         foreach ($configuracionesDefecto as $config) {
-            ConfiguracionSistema::updateOrCreate(
+            // Use updateOrInsert for idempotent seeding without model events
+            ConfiguracionSistema::query()->updateOrInsert(
                 ['clave' => $config['clave']],
                 $config
             );
@@ -285,8 +309,23 @@ class ConfiguracionController extends Controller
 
         return response()->json([
             'clave' => $config->clave,
-            'valor' => $valor,
+            'valor' => $this->normalizeConfigValor($config->clave, $valor),
             'tipo' => $config->tipo
         ]);
+    }
+
+    private function normalizeConfigValor(string $clave, $valor)
+    {
+        if (!is_string($valor)) {
+            return $valor;
+        }
+
+        $keysToNormalize = ['logo_url', 'qr_pago_url'];
+
+        if (in_array($clave, $keysToNormalize, true)) {
+            return AssetUrl::normalize($valor);
+        }
+
+        return $valor;
     }
 }

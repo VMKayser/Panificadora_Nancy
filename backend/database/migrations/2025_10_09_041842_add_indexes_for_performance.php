@@ -56,6 +56,20 @@ return new class extends Migration
      */
     private function hasIndex($table, $indexName)
     {
+        $driver = DB::connection()->getDriverName();
+        if ($driver === 'sqlite') {
+            // SQLite: use PRAGMA index_list
+            $indexes = DB::select("PRAGMA index_list('{$table}')");
+            foreach ($indexes as $idx) {
+                // result object may have 'name' property
+                if ((isset($idx->name) && $idx->name === $indexName) || (isset($idx->idx_name) && $idx->idx_name === $indexName)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Default: MySQL-compatible
         $indexes = DB::select("SHOW INDEX FROM {$table} WHERE Key_name = '{$indexName}'");
         return !empty($indexes);
     }

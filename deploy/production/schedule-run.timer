@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Laravel schedule:run every minute (panificadora)
+
+[Timer]
+# Run every minute
+OnUnitActiveSec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

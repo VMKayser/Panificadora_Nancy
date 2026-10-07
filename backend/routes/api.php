@@ -15,6 +15,8 @@ use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\Api\EmpleadoPagoController;
 
+
+
 // ============================================
 // RUTAS DE AUTENTICACIÓN (Públicas con Rate Limiting)
 // ============================================
@@ -22,7 +24,86 @@ use App\Http\Controllers\Api\EmpleadoPagoController;
 Route::middleware('throttle:5,1')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
+    // Recuperación de contraseña (enlace de un solo uso por correo)
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 });
+
+// Email verification routes (signed URL + resend)
+use Illuminate\Http\Request as HttpRequest;
+
+// Public verification endpoint that works without the user being authenticated (API clients may open
+// the verification link in a browser where the user isn't logged in). The framework's
+// EmailVerificationRequest expects an authenticated user, so we perform manual verification here:
+use Illuminate\Auth\Events\Verified;
+
+Route::get('/email/verify/{id}/{hash}', function (Request $request, $id, $hash) {
+    // Validate signature (signed middleware already runs, but double-checking here gives clearer JSON errors)
+    if (!$request->hasValidSignature()) {
+        return response()->json(['message' => 'Enlace inválido o expirado'], 403);
+    }
+
+    $user = \App\Models\User::find($id);
+    if (!$user) {
+        return response()->json(['message' => 'Usuario no encontrado'], 404);
+    }
+
+    // Ensure the hash matches the user's email (same check Laravel does internally)
+    if (!hash_equals(sha1($user->getEmailForVerification()), (string) $hash)) {
+        return response()->json(['message' => 'Hash de verificación inválido'], 403);
+    }
+
+    if ($user->hasVerifiedEmail()) {
+        return response()->json(['message' => 'Correo ya verificado'], 200);
+    }
+
+    $user->markEmailAsVerified();
+    event(new Verified($user));
+
+    // If the request expects JSON (API client), return JSON. Otherwise redirect to the
+    // frontend application so the user sees a friendly UI. We include the email so the
+    // frontend can show it if desired (e.g. "Tu correo x@... ha sido verificado").
+    if ($request->wantsJson() || str_contains($request->header('accept', ''), 'application/json')) {
+        return response()->json(['message' => 'Email verificado'], 200);
+    }
+
+    $frontendBase = config('app.frontend_verify_url') ?: config('app.frontend_url') ?: config('app.url') ?: env('APP_URL', '');
+    $frontendBase = rtrim($frontendBase, '/');
+
+    $query = http_build_query([
+        'verified' => 1,
+        'email' => $user->email,
+    ], '', '&', PHP_QUERY_RFC3986);
+
+    $separator = str_contains($frontendBase, '?') ? '&' : '?';
+    $redirectTo = $frontendBase . ($query ? $separator . $query : '');
+
+    return redirect()->away($redirectTo);
+})->middleware('signed')->name('verification.verify');
+
+Route::post('/email/resend', function (HttpRequest $request) {
+    // Allow either authenticated user or public request with email in body.
+    $email = $request->input('email');
+    $user = $request->user();
+    if (!$user && !$email) {
+        return response()->json(['message' => 'Se requiere autenticación o email'], 400);
+    }
+
+    if (!$user) {
+        $user = \App\Models\User::where('email', $email)->first();
+        if (!$user) {
+            // Do not reveal existence of emails in production; reply generically
+            return response()->json(['message' => 'Si el correo existe, se ha reenviado la verificación'], 202);
+        }
+    }
+
+    // Misma respuesta esté o no verificado: no revela qué correos tienen cuenta.
+    if (!$user->hasVerifiedEmail()) {
+        // Send verification (queued if queue is configured)
+        $user->sendEmailVerificationNotification();
+    }
+    return response()->json(['message' => 'Si el correo existe, se ha reenviado la verificación'], 202);
+})->middleware('throttle:6,1');
 
 // Rutas protegidas de autenticación (throttle: 60 requests por minuto)
 Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
@@ -40,9 +121,16 @@ Route::get('/user', function (Request $request) {
 Route::get('/productos', [ProductoController::class, 'index']);
 Route::get('/productos/{id}', [ProductoController::class, 'show']);
 
+// Rutas públicas para configuraciones no sensibles (logo, QR, whatsapp, nombre)
+Route::get('/configuraciones/public/{clave}/valor', [\App\Http\Controllers\ConfiguracionPublicController::class, 'getValor']);
+
+// Healthcheck endpoint (public) - simple DB + cache sanity check
+Route::get('/health', [\App\Http\Controllers\SystemHealthController::class, 'index']);
+
 
 // Rutas de pedidos
-Route::post('/pedidos', [PedidoController::class, 'store']);
+// Pedido web desde la tienda: limitado por IP para frenar el spam de pedidos.
+Route::post('/pedidos', [PedidoController::class, 'store'])->middleware('throttle:pedidos');
 Route::get('/metodos-pago', [PedidoController::class, 'metodosPago']);
 
 // Rutas protegidas de pedidos del cliente
@@ -72,6 +160,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,vendedor'])->gro
     
     // Estadísticas de productos
     Route::get('/stats', [AdminProductoController::class, 'stats']);
+    // Dashboard snapshot endpoint (cached) - admin only
+    Route::get('/dashboard-stats', [\App\Http\Controllers\Api\AdminStatsController::class, 'index'])
+        ->middleware('role:admin');
     
     // Gestión de pedidos
     Route::get('/pedidos', [AdminPedidoController::class, 'index']);
@@ -82,66 +173,14 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,vendedor'])->gro
     Route::get('/pedidos/{id}', [AdminPedidoController::class, 'show']);
     Route::put('/pedidos/{id}/estado', [AdminPedidoController::class, 'updateEstado']);
     Route::put('/pedidos/{id}/fecha-entrega', [AdminPedidoController::class, 'updateFechaEntrega']);
+    Route::put('/pedidos/{id}/pago', [AdminPedidoController::class, 'updatePago']);
     Route::post('/pedidos/{id}/notas', [AdminPedidoController::class, 'addNotas']);
     Route::post('/pedidos/{id}/cancelar', [AdminPedidoController::class, 'cancel']);
 
-    // Gestión de clientes
-    Route::get('/clientes', [ClienteController::class, 'index']);
-    Route::post('/clientes', [ClienteController::class, 'store']);
-    Route::get('/clientes/estadisticas', [ClienteController::class, 'estadisticas']);
-    Route::post('/clientes/buscar-email', [ClienteController::class, 'findByEmail']);
-    Route::get('/clientes/{id}', [ClienteController::class, 'show']);
-    Route::put('/clientes/{id}', [ClienteController::class, 'update']);
-    Route::delete('/clientes/{id}', [ClienteController::class, 'destroy']);
-    Route::post('/clientes/{id}/toggle-active', [ClienteController::class, 'toggleActive']);
+    // Venta de mostrador (POS): entregada y pagada en el momento
+    Route::post('/ventas-mostrador', [PedidoController::class, 'storeMostrador']);
 
-    // Gestión de panaderos
-    Route::get('/panaderos', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'index']);
-    Route::post('/panaderos', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'store']);
-    Route::get('/panaderos/{id}', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'show']);
-    Route::put('/panaderos/{id}', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'update']);
-    Route::delete('/panaderos/{id}', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'destroy']);
-
-    // ============================================
-    // GESTIÓN DE EMPLEADOS (NUEVO)
-    // ============================================
-    
-    // Panaderos - CRUD Completo
-    Route::prefix('empleados/panaderos')->group(function () {
-        Route::get('/', [\App\Http\Controllers\Admin\PanaderoController::class, 'index']);
-        Route::post('/', [\App\Http\Controllers\Admin\PanaderoController::class, 'store']);
-        Route::get('/estadisticas', [\App\Http\Controllers\Admin\PanaderoController::class, 'estadisticas']);
-        Route::get('/{id}', [\App\Http\Controllers\Admin\PanaderoController::class, 'show']);
-        Route::put('/{id}', [\App\Http\Controllers\Admin\PanaderoController::class, 'update']);
-        Route::delete('/{id}', [\App\Http\Controllers\Admin\PanaderoController::class, 'destroy']);
-        Route::post('/{id}/toggle-activo', [\App\Http\Controllers\Admin\PanaderoController::class, 'toggleActivo']);
-    });
-
-    // Vendedores - CRUD Completo
-    Route::prefix('empleados/vendedores')->group(function () {
-        Route::get('/', [\App\Http\Controllers\Admin\VendedorController::class, 'index']);
-        Route::post('/', [\App\Http\Controllers\Admin\VendedorController::class, 'store']);
-        Route::get('/estadisticas', [\App\Http\Controllers\Admin\VendedorController::class, 'estadisticas']);
-        Route::get('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'show']);
-        Route::put('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'update']);
-        Route::delete('/{id}', [\App\Http\Controllers\Admin\VendedorController::class, 'destroy']);
-        Route::post('/{id}/cambiar-estado', [\App\Http\Controllers\Admin\VendedorController::class, 'cambiarEstado']);
-        Route::get('/{id}/reporte-ventas', [\App\Http\Controllers\Admin\VendedorController::class, 'reporteVentas']);
-    });
-
-    // Configuraciones del Sistema
-    Route::prefix('configuraciones')->group(function () {
-        Route::get('/', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'index']);
-        Route::get('/{clave}', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'show']);
-        Route::post('/', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'store']);
-        Route::put('/actualizar-multiples', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'actualizarMultiples']);
-        Route::delete('/{clave}', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'destroy']);
-        Route::post('/inicializar-defecto', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'inicializarDefecto']);
-        Route::get('/{clave}/valor', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'getValor']);
-    });
-        // empleado payments
-        Route::get('empleado-pagos', [EmpleadoPagoController::class, 'index']);
-        Route::post('empleado-pagos', [EmpleadoPagoController::class, 'store']);
+    // Clientes, panaderos, empleados, nómina y configuración: solo admin (grupo de abajo).
 
     // Gestión de categorías
     Route::get('/categorias', [\App\Http\Controllers\Api\AdminCategoriaController::class, 'index']);
@@ -156,7 +195,12 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,vendedor'])->gro
 // ============================================
 // RUTAS DE SISTEMA DE INVENTARIO
 // ============================================
-Route::prefix('inventario')->middleware(['auth:sanctum'])->group(function () {
+// El panadero solo registra su producción desde /panadero/produccion.
+Route::post('/inventario/producciones', [ProduccionController::class, 'store'])
+    ->middleware(['auth:sanctum', 'role:admin,panadero']);
+
+// Inventario, recetas, costos y caja: solo administración.
+Route::prefix('inventario')->middleware(['auth:sanctum', 'role:admin'])->group(function () {
     
     // ===== MATERIAS PRIMAS =====
     Route::prefix('materias-primas')->group(function () {
@@ -186,7 +230,7 @@ Route::prefix('inventario')->middleware(['auth:sanctum'])->group(function () {
     // ===== PRODUCCIÓN =====
     Route::prefix('producciones')->group(function () {
         Route::get('/', [ProduccionController::class, 'index']); // Listar todas
-        Route::post('/', [ProduccionController::class, 'store']); // Registrar producción
+        // POST / (registrar producción) está definido arriba para admin y panadero
         Route::get('/reporte-diario', [ProduccionController::class, 'reporteDiario']); // Reporte del día
         Route::get('/reporte-periodo', [ProduccionController::class, 'reportePeriodo']); // Reporte por período
         Route::get('/analisis-diferencias', [ProduccionController::class, 'analisisDiferencias']); // Análisis mermas
@@ -196,7 +240,8 @@ Route::prefix('inventario')->middleware(['auth:sanctum'])->group(function () {
     });
 
     // ===== INVENTARIO PRODUCTOS FINALES =====
-    Route::get('/dashboard', [InventarioController::class, 'dashboard']); // Dashboard general
+    // Dashboard general - devuelve métricas usadas por el frontend (pedidos_hoy, ingresos_hoy, etc.)
+    Route::get('/dashboard', [\App\Http\Controllers\Api\InventarioDashboardController::class, 'index']); // Dashboard general
     Route::get('/productos-finales', [InventarioController::class, 'productosFinales']); // Stock productos
     Route::get('/movimientos-productos', [InventarioController::class, 'movimientosProductos']); // Movimientos
     Route::post('/productos/{productoId}/ajustar', [InventarioController::class, 'ajustarInventarioProducto']); // Ajuste
@@ -204,6 +249,9 @@ Route::prefix('inventario')->middleware(['auth:sanctum'])->group(function () {
     Route::get('/reporte-mermas', [InventarioController::class, 'reporteMermas']); // Mermas
     Route::get('/kardex/{productoId}', [InventarioController::class, 'kardex']); // Kardex
     Route::post('/productos/{productoId}/stock-minimo', [InventarioController::class, 'configurarStockMinimo']); // Config
+    // Movimientos de caja (ingresos / salidas)
+    Route::get('/movimientos-caja', [\App\Http\Controllers\Api\MovimientoCajaController::class, 'index']);
+    Route::post('/movimientos-caja', [\App\Http\Controllers\Api\MovimientoCajaController::class, 'store']);
 });
 
 // ============================================
@@ -251,11 +299,40 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin'])->group(functi
         Route::get('/', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'index']);
         Route::post('/', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'store']);
         Route::post('/actualizar-multiples', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'actualizarMultiples']);
+        Route::put('/actualizar-multiples', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'actualizarMultiples']);
         Route::post('/inicializar-defecto', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'inicializarDefecto']);
         Route::get('/{clave}', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'show']);
         Route::delete('/{clave}', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'destroy']);
         Route::get('/{clave}/valor', [\App\Http\Controllers\Admin\ConfiguracionController::class, 'getValor']);
     });
+
+    // Gestión de clientes
+    Route::get('/clientes', [ClienteController::class, 'index']);
+    Route::post('/clientes', [ClienteController::class, 'store']);
+    Route::get('/clientes/estadisticas', [ClienteController::class, 'estadisticas']);
+    Route::post('/clientes/buscar-email', [ClienteController::class, 'findByEmail']);
+    Route::get('/clientes/{id}', [ClienteController::class, 'show']);
+    Route::put('/clientes/{id}', [ClienteController::class, 'update']);
+    Route::delete('/clientes/{id}', [ClienteController::class, 'destroy']);
+    Route::post('/clientes/{id}/toggle-active', [ClienteController::class, 'toggleActive']);
+
+    // Gestión de panaderos
+    Route::get('/panaderos', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'index']);
+    Route::post('/panaderos', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'store']);
+    Route::get('/panaderos/{id}', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'show']);
+    Route::put('/panaderos/{id}', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'update']);
+    Route::delete('/panaderos/{id}', [\App\Http\Controllers\Api\AdminPanaderoController::class, 'destroy']);
+
+    // Admin utility: clear dashboard cache
+    Route::post('/cache/dashboard/clear', [\App\Http\Controllers\Admin\AdminDashboardController::class, 'clearCache']);
+    // WhatsApp admin endpoints: listar y reintentar mensajes
+    Route::prefix('whatsapp')->group(function () {
+        Route::get('/messages', [\App\Http\Controllers\Admin\WhatsAppController::class, 'index']);
+        Route::post('/messages/{id}/retry', [\App\Http\Controllers\Admin\WhatsAppController::class, 'retry']);
+    });
+    // Pagos a empleados (nómina)
+    Route::get('empleado-pagos', [EmpleadoPagoController::class, 'index']);
+    Route::post('empleado-pagos', [EmpleadoPagoController::class, 'store']);
 });
 
 

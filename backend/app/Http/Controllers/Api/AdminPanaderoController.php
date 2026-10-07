@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\Role;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Cache;
+use App\Support\PasswordPolicy;
 
 class AdminPanaderoController extends Controller
 {
@@ -64,7 +65,7 @@ class AdminPanaderoController extends Controller
             'nombre' => 'required|string|max:100',
             'apellido' => 'required|string|max:100',
             'email' => 'required|email', // No unique: puede existir si estamos convirtiendo un user existente
-            'password' => 'sometimes|nullable|string|min:6',
+            'password' => array_merge(['sometimes', 'nullable'], PasswordPolicy::rules()),
             'mark_verified' => 'sometimes|boolean',
             'telefono' => 'required|string|max:20',
             'ci' => $ciRule,
@@ -74,7 +75,7 @@ class AdminPanaderoController extends Controller
             'salario_base' => 'required|numeric',
             'salario_por_kilo' => 'sometimes|numeric',
             'observaciones' => 'sometimes|nullable|string|max:2000',
-        ]);
+        ], PasswordPolicy::messages());
 
         // Buscar o crear el User
         $user = User::firstWhere('email', $validated['email']);

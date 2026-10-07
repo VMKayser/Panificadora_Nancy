@@ -12,6 +12,10 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\InventarioProductoFinal;
+use App\Models\MovimientoProductoFinal;
+use App\Support\SafeTransaction;
+use App\Support\AssetUrl;
+use App\Support\Miniaturas;
 
 class AdminProductoController extends Controller
 {
@@ -73,6 +77,7 @@ class AdminProductoController extends Controller
             'descripcion_corta' => 'nullable|string',
             'precio_minorista' => 'required|numeric|min:0',
             'precio_mayorista' => 'nullable|numeric|min:0',
+            'precio_por_confirmar' => 'boolean',
             'cantidad_minima_mayoreo' => 'nullable|integer|min:1',
             // Values must match the DB enum exactly to avoid SQL truncation warnings
             'unidad_medida' => 'nullable|in:unidad,cm,docena,paquete,gramos,kilogramos,arroba,porcion',
@@ -85,6 +90,8 @@ class AdminProductoController extends Controller
             'requiere_tiempo_anticipacion' => 'boolean',
             'tiempo_anticipacion' => 'nullable|integer|min:0',
             'unidad_tiempo' => 'nullable|in:horas,dias,semanas',
+            'pedidos_hasta' => 'nullable|date',
+            'etiqueta_personalizacion' => 'nullable|string|max:60',
             'limite_produccion' => 'nullable|integer|min:0',
             'tiene_extras' => 'boolean',
             'extras_disponibles' => 'nullable|array',
@@ -93,83 +100,98 @@ class AdminProductoController extends Controller
         ]);
 
         try {
-            DB::beginTransaction();
+            $producto = SafeTransaction::run(function () use ($validated) {
+                // Generar URL única
+                $url = Str::slug($validated['nombre']);
+                $originalUrl = $url;
+                $counter = 1;
+                
+                while (Producto::withTrashed()->where('url', $url)->exists()) {
+                    $url = $originalUrl . '-' . $counter;
+                    $counter++;
+                }
 
-            // Generar URL única
-            $url = Str::slug($validated['nombre']);
-            $originalUrl = $url;
-            $counter = 1;
-            
-            while (Producto::where('url', $url)->exists()) {
-                $url = $originalUrl . '-' . $counter;
-                $counter++;
-            }
+                $validated['url'] = $url;
 
-            $validated['url'] = $url;
+                // Ensure database-required numeric fields have defaults if not provided
+                if (!isset($validated['limite_produccion'])) {
+                    $validated['limite_produccion'] = 0;
+                }
+                if (!isset($validated['cantidad'])) {
+                    $validated['cantidad'] = 0;
+                }
 
-            // Ensure database-required numeric fields have defaults if not provided
-            if (!isset($validated['limite_produccion'])) {
-                $validated['limite_produccion'] = 0;
-            }
-            if (!isset($validated['cantidad'])) {
-                $validated['cantidad'] = 0;
-            }
+                // Normalize boolean checkboxes: if not present in request, set sensible defaults
+                $validated['es_de_temporada'] = $validated['es_de_temporada'] ?? false;
+                $validated['esta_activo'] = $validated['esta_activo'] ?? true;
+                // DB default for permite_delivery is true
+                $validated['permite_delivery'] = $validated['permite_delivery'] ?? true;
+                $validated['permite_envio_nacional'] = $validated['permite_envio_nacional'] ?? false;
+                $validated['requiere_tiempo_anticipacion'] = $validated['requiere_tiempo_anticipacion'] ?? false;
+                $validated['tiene_extras'] = $validated['tiene_extras'] ?? false;
+                $validated['precio_por_confirmar'] = $validated['precio_por_confirmar'] ?? false;
 
-            // Normalize boolean checkboxes: if not present in request, set sensible defaults
-            $validated['es_de_temporada'] = $validated['es_de_temporada'] ?? false;
-            $validated['esta_activo'] = $validated['esta_activo'] ?? true;
-            // DB default for permite_delivery is true
-            $validated['permite_delivery'] = $validated['permite_delivery'] ?? true;
-            $validated['permite_envio_nacional'] = $validated['permite_envio_nacional'] ?? false;
-            $validated['requiere_tiempo_anticipacion'] = $validated['requiere_tiempo_anticipacion'] ?? false;
-            $validated['tiene_extras'] = $validated['tiene_extras'] ?? false;
+                // Normalize extras: if tiene_extras is false, store null; if true but array is missing, store empty array
+                if (!$validated['tiene_extras']) {
+                    $validated['extras_disponibles'] = null;
+                } else {
+                    $validated['extras_disponibles'] = isset($validated['extras_disponibles']) ? array_values($validated['extras_disponibles']) : [];
+                }
 
-            // Normalize extras: if tiene_extras is false, store null; if true but array is missing, store empty array
-            if (!$validated['tiene_extras']) {
-                $validated['extras_disponibles'] = null;
-            } else {
-                $validated['extras_disponibles'] = isset($validated['extras_disponibles']) ? array_values($validated['extras_disponibles']) : [];
-            }
+                // Crear producto
+                // Create product without attempting to set productos.cantidad (we use inventory table as source of truth)
+                $productoData = $validated;
+                // Remove cantidad if present to avoid writing to productos.cantidad
+                if (array_key_exists('cantidad', $productoData)) {
+                    unset($productoData['cantidad']);
+                }
+                $producto = Producto::create($productoData);
 
-            // Crear producto
-            // Create product without attempting to set productos.cantidad (we use inventory table as source of truth)
-            $productoData = $validated;
-            // Remove cantidad if present to avoid writing to productos.cantidad
-            if (array_key_exists('cantidad', $productoData)) {
-                unset($productoData['cantidad']);
-            }
-            $producto = Producto::create($productoData);
-
-            // Agregar imágenes si existen
-            if (isset($validated['imagenes']) && is_array($validated['imagenes'])) {
-                foreach ($validated['imagenes'] as $index => $imagenUrl) {
-                    // Security: accept only http(s) URLs or data URIs. Skip otherwise.
-                    if (is_string($imagenUrl) && (preg_match('#^https?://#i', $imagenUrl) || preg_match('#^data:image/#i', $imagenUrl))) {
-                        ImagenProducto::create([
-                            'producto_id' => $producto->id,
-                            'url_imagen' => $imagenUrl,
-                            'es_imagen_principal' => $index === 0,
-                            'order' => $index + 1,
-                        ]);
-                    } else {
-                        Log::warning('Imagen no válida omitida al crear producto ' . $producto->id . ': ' . json_encode($imagenUrl));
+                // Agregar imágenes si existen
+                if (isset($validated['imagenes']) && is_array($validated['imagenes'])) {
+                    foreach ($validated['imagenes'] as $index => $imagenUrl) {
+                        // Security: accept only http(s) URLs or data URIs. Skip otherwise.
+                        if (is_string($imagenUrl) && (preg_match('#^https?://#i', $imagenUrl) || preg_match('#^data:image/#i', $imagenUrl))) {
+                            ImagenProducto::create([
+                                'producto_id' => $producto->id,
+                                'url_imagen' => $imagenUrl,
+                                'es_imagen_principal' => $index === 0,
+                                'order' => $index + 1,
+                            ]);
+                        } else {
+                            Log::warning('Imagen no válida omitida al crear producto ' . $producto->id . ': ' . json_encode($imagenUrl));
+                        }
                     }
                 }
-            }
 
-            DB::commit();
+                return $producto;
+            });
 
-            // Sincronizar inventario: si se proporcionó 'cantidad' la guardamos en inventario
+            // Inventario inicial: stock 0 salvo que se indique 'cantidad', que queda
+            // registrada como movimiento en el kardex. El costo empieza en 0 (se
+            // conoce al registrar producción); antes se copiaba el precio de venta
+            // y la ganancia salía siempre 0.
             try {
-                if (isset($validated['cantidad'])) {
-                    InventarioProductoFinal::updateOrCreate(
-                        ['producto_id' => $producto->id],
-                        [
-                            'stock_actual' => $validated['cantidad'],
-                            'stock_minimo' => 0,
-                            'costo_promedio' => $producto->precio_minorista ?? 0,
-                        ]
-                    );
+                InventarioProductoFinal::insertOrIgnore([
+                    'producto_id' => $producto->id,
+                    'stock_actual' => 0,
+                    'stock_minimo' => 0,
+                    'costo_promedio' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                $stockInicial = (float) ($validated['cantidad'] ?? 0);
+                if ($stockInicial > 0) {
+                    InventarioProductoFinal::where('producto_id', $producto->id)->update(['stock_actual' => $stockInicial]);
+                    MovimientoProductoFinal::create([
+                        'producto_id' => $producto->id,
+                        'tipo_movimiento' => 'ajuste',
+                        'cantidad' => $stockInicial,
+                        'stock_anterior' => 0,
+                        'stock_nuevo' => $stockInicial,
+                        'user_id' => $request->user()?->id,
+                        'observaciones' => 'Stock inicial al crear el producto',
+                    ]);
                 }
             } catch (\Throwable $e) {
                 // No bloquear la creación del producto si falla la sincronización de inventario
@@ -188,10 +210,9 @@ class AdminProductoController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
-            DB::rollBack();
+            Log::error('Error al crear producto: ' . $e->getMessage(), ['exception' => $e]);
             return response()->json([
                 'message' => 'Error al crear producto',
-                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -225,6 +246,7 @@ class AdminProductoController extends Controller
             'descripcion_corta' => 'nullable|string',
             'precio_minorista' => 'nullable|numeric|min:0',
             'precio_mayorista' => 'nullable|numeric|min:0',
+            'precio_por_confirmar' => 'nullable|boolean',
             'cantidad_minima_mayoreo' => 'nullable|integer|min:1',
             'unidad_medida' => 'nullable|in:unidad,cm,docena,paquete,gramos,kilogramos,arroba,porcion',
             'cantidad' => 'nullable|numeric|min:0',
@@ -236,6 +258,8 @@ class AdminProductoController extends Controller
             'requiere_tiempo_anticipacion' => 'nullable|boolean',
             'tiempo_anticipacion' => 'nullable|integer|min:0',
             'unidad_tiempo' => 'nullable|in:horas,dias,semanas',
+            'pedidos_hasta' => 'nullable|date',
+            'etiqueta_personalizacion' => 'nullable|string|max:60',
             'limite_produccion' => 'nullable|integer|min:0',
             'tiene_extras' => 'nullable|boolean',
             'extras_disponibles' => 'nullable|array',
@@ -246,87 +270,93 @@ class AdminProductoController extends Controller
         Log::info('Datos validados', ['validated' => $validated]);
 
         try {
-            DB::beginTransaction();
+            $productoUpdated = SafeTransaction::run(function () use ($validated, $producto, $id) {
+                // Filtrar solo los campos que fueron enviados (pero mantener arrays vacíos y false)
+                $dataToUpdate = array_filter($validated, function($value, $key) {
+                    // Mantener arrays vacíos, booleanos false, y valores no nulos
+                    if (is_array($value)) {
+                        return true; // Mantener todos los arrays, incluso vacíos
+                    }
+                    if (is_bool($value)) {
+                        return true; // Mantener valores booleanos
+                    }
+                    return $value !== null; // Filtrar solo valores null
+                }, ARRAY_FILTER_USE_BOTH);
 
-            // Filtrar solo los campos que fueron enviados (pero mantener arrays vacíos y false)
-            $dataToUpdate = array_filter($validated, function($value, $key) {
-                // Mantener arrays vacíos, booleanos false, y valores no nulos
-                if (is_array($value)) {
-                    return true; // Mantener todos los arrays, incluso vacíos
-                }
-                if (is_bool($value)) {
-                    return true; // Mantener valores booleanos
-                }
-                return $value !== null; // Filtrar solo valores null
-            }, ARRAY_FILTER_USE_BOTH);
-
-            // Si cambia el nombre, regenerar URL
-            if (isset($dataToUpdate['nombre']) && $dataToUpdate['nombre'] !== $producto->nombre) {
-                $url = Str::slug($dataToUpdate['nombre']);
-                $originalUrl = $url;
-                $counter = 1;
-                
-                while (Producto::where('url', $url)->where('id', '!=', $id)->exists()) {
-                    $url = $originalUrl . '-' . $counter;
-                    $counter++;
-                }
-                
-                $dataToUpdate['url'] = $url;
-            }
-
-            // Avoid writing to productos.cantidad (inventory is source of truth)
-            if (array_key_exists('cantidad', $dataToUpdate)) {
-                unset($dataToUpdate['cantidad']);
-            }
-
-            // Ensure boolean defaults when checkboxes are omitted from the payload
-            $defaults = [
-                'es_de_temporada' => false,
-                'esta_activo' => true,
-                'permite_delivery' => false,
-                'permite_envio_nacional' => false,
-                'requiere_tiempo_anticipacion' => false,
-                'tiene_extras' => false,
-            ];
-            foreach ($defaults as $k => $v) {
-                if (!array_key_exists($k, $dataToUpdate)) {
-                    // if key was not provided, we don't want to overwrite existing value; only set if explicitly present in validated
-                    if (array_key_exists($k, $validated)) {
-                        $dataToUpdate[$k] = $validated[$k];
+                // Estos dos se pueden vaciar: un null enviado borra el valor
+                foreach (['pedidos_hasta', 'etiqueta_personalizacion'] as $campo) {
+                    if (array_key_exists($campo, $validated)) {
+                        $dataToUpdate[$campo] = $validated[$campo] ?: null;
                     }
                 }
-            }
 
-            // Normalize extras for update: if tiene_extras is false, set extras_disponibles to null
-            if (array_key_exists('tiene_extras', $dataToUpdate) && $dataToUpdate['tiene_extras'] === false) {
-                $dataToUpdate['extras_disponibles'] = null;
-            } elseif (array_key_exists('tiene_extras', $dataToUpdate) && $dataToUpdate['tiene_extras'] === true) {
-                $dataToUpdate['extras_disponibles'] = array_key_exists('extras_disponibles', $validated) ? array_values($validated['extras_disponibles']) : [];
-            }
-
-            // Actualizar solo los campos proporcionados
-            if (!empty($dataToUpdate)) {
-                $producto->update($dataToUpdate);
-            }
-
-            // Actualizar imágenes si se proporcionan
-            if (isset($validated['imagenes']) && is_array($validated['imagenes'])) {
-                // Eliminar imágenes antiguas
-                ImagenProducto::where('producto_id', $producto->id)->delete();
-                
-                // Agregar nuevas imágenes
-                foreach ($validated['imagenes'] as $index => $imagenUrl) {
-                    ImagenProducto::create([
-                        'producto_id' => $producto->id,
-                        'url_imagen' => $imagenUrl,
-                        'es_imagen_principal' => $index === 0,
-                        'order' => $index + 1,
-                    ]);
+                // Si cambia el nombre, regenerar URL
+                if (isset($dataToUpdate['nombre']) && $dataToUpdate['nombre'] !== $producto->nombre) {
+                    $url = Str::slug($dataToUpdate['nombre']);
+                    $originalUrl = $url;
+                    $counter = 1;
+                    
+                    while (Producto::withTrashed()->where('url', $url)->where('id', '!=', $id)->exists()) {
+                        $url = $originalUrl . '-' . $counter;
+                        $counter++;
+                    }
+                    
+                    $dataToUpdate['url'] = $url;
                 }
-            }
 
-            // If a cantidad was provided we need to sync inventory before committing return
-            DB::commit();
+                // Avoid writing to productos.cantidad (inventory is source of truth)
+                if (array_key_exists('cantidad', $dataToUpdate)) {
+                    unset($dataToUpdate['cantidad']);
+                }
+
+                // Ensure boolean defaults when checkboxes are omitted from the payload
+                $defaults = [
+                    'es_de_temporada' => false,
+                    'esta_activo' => true,
+                    'permite_delivery' => false,
+                    'permite_envio_nacional' => false,
+                    'requiere_tiempo_anticipacion' => false,
+                    'tiene_extras' => false,
+                ];
+                foreach ($defaults as $k => $v) {
+                    if (!array_key_exists($k, $dataToUpdate)) {
+                        // if key was not provided, we don't want to overwrite existing value; only set if explicitly present in validated
+                        if (array_key_exists($k, $validated)) {
+                            $dataToUpdate[$k] = $validated[$k];
+                        }
+                    }
+                }
+
+                // Normalize extras for update: if tiene_extras is false, set extras_disponibles to null
+                if (array_key_exists('tiene_extras', $dataToUpdate) && $dataToUpdate['tiene_extras'] === false) {
+                    $dataToUpdate['extras_disponibles'] = null;
+                } elseif (array_key_exists('tiene_extras', $dataToUpdate) && $dataToUpdate['tiene_extras'] === true) {
+                    $dataToUpdate['extras_disponibles'] = array_key_exists('extras_disponibles', $validated) ? array_values($validated['extras_disponibles']) : [];
+                }
+
+                // Actualizar solo los campos proporcionados
+                if (!empty($dataToUpdate)) {
+                    $producto->update($dataToUpdate);
+                }
+
+                // Actualizar imágenes si se proporcionan
+                if (isset($validated['imagenes']) && is_array($validated['imagenes'])) {
+                    // Eliminar imágenes antiguas
+                    ImagenProducto::where('producto_id', $producto->id)->delete();
+                    
+                    // Agregar nuevas imágenes
+                    foreach ($validated['imagenes'] as $index => $imagenUrl) {
+                        ImagenProducto::create([
+                            'producto_id' => $producto->id,
+                            'url_imagen' => $imagenUrl,
+                            'es_imagen_principal' => $index === 0,
+                            'order' => $index + 1,
+                        ]);
+                    }
+                }
+
+                return $producto;
+            });
 
             // Invalidate caches
             Cache::forget('productos.stats');
@@ -334,19 +364,9 @@ class AdminProductoController extends Controller
                 Cache::forget("productos.index.page.1.per.{$pp}");
             }
 
-            // Sincronizar inventario si se envió 'cantidad' (hacerlo después del commit para no interferir con la transacción)
-            try {
-                if (array_key_exists('cantidad', $validated)) {
-                    InventarioProductoFinal::updateOrCreate(
-                        ['producto_id' => $producto->id],
-                        [
-                            'stock_actual' => $validated['cantidad'] ?? 0,
-                        ]
-                    );
-                }
-            } catch (\Throwable $e) {
-                Log::warning('No se pudo sincronizar inventario (update) para producto ' . $producto->id . ': ' . $e->getMessage());
-            }
+            // El stock NO se edita desde el formulario de producto: se maneja con
+            // producción y ajustes de inventario (que dejan movimiento en el kardex).
+            // Si llega 'cantidad' de un frontend antiguo se ignora.
 
             return response()->json([
                 'message' => 'Producto actualizado exitosamente',
@@ -354,8 +374,6 @@ class AdminProductoController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            DB::rollBack();
-            
             Log::error('Error al actualizar producto', [
                 'id' => $id,
                 'error' => $e->getMessage(),
@@ -364,7 +382,6 @@ class AdminProductoController extends Controller
             
             return response()->json([
                 'message' => 'Error al actualizar producto',
-                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -459,12 +476,12 @@ class AdminProductoController extends Controller
                 Storage::disk('public')->makeDirectory('productos');
             }
             
-            // Guardar la imagen
+            // Guardar la imagen y sus versiones reducidas para la tienda
             $path = $image->storeAs('productos', $filename, 'public');
+            Miniaturas::generar($path);
 
-            // URL completa accesible desde el frontend
-            // Usar config('app.url') para asegurar la URL correcta
-            $url = config('app.url') . Storage::url($path);
+            // Obtener URL pública y normalizarla para evitar rutas relativas o dominios duplicados
+            $url = AssetUrl::normalize(Storage::url($path));
             
             Log::info('Imagen subida', [
                 'filename' => $filename,
@@ -488,7 +505,6 @@ class AdminProductoController extends Controller
             
             return response()->json([
                 'message' => 'Error al subir imagen',
-                'error' => $e->getMessage()
             ], 500);
         }
     }
