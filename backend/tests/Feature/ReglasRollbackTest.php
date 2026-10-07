@@ -35,6 +35,11 @@ class ReglasRollbackTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Con SQLite en memoria (CI), sin transacción RefreshDatabase no reutiliza
+        // la conexión ya migrada y esta llega vacía: crear las tablas aquí.
+        if ($this->usingInMemoryDatabase()) {
+            $this->artisan('migrate');
+        }
         // Dejar la BD limpia para los demás tests (no hay transacción que revertir)
         $this->beforeApplicationDestroyed(fn () => $this->artisan('migrate:fresh'));
         $this->admin = User::factory()->create();
