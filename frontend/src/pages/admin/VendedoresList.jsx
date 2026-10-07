@@ -1,13 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
-import { 
-  Users, TrendingUp, DollarSign, Award,
-  Search, Eye, Edit2, Trash2, UserX, UserCheck,
-  Plus, Download
-} from 'lucide-react';
+import { Users, TrendingUp, DollarSign, Search, Eye, Edit2, Trash2, UserX, UserCheck, Plus } from 'lucide-react';
 import { vendedorService } from '../../services/empleadosService';
+import { formatCurrency } from '../../utils/number';
 import './VendedoresList.css';
 import useDebounce from '../../hooks/useDebounce';
 
@@ -35,17 +32,13 @@ const VendedoresList = () => {
 
   const debouncedBuscar = useDebounce(filtros.buscar, 350);
 
-  useEffect(() => {
-    cargarVendedores(debouncedBuscar);
-    cargarEstadisticas();
-  }, [filtros.estado, filtros.turno, debouncedBuscar, paginacion.paginaActual]);
-
-  const cargarVendedores = async (buscarOverride) => {
+  // Usa la búsqueda ya debounced: así no se pide al servidor en cada tecla
+  const cargarVendedores = useCallback(async () => {
     try {
       setLoading(true);
       const params = {
         page: paginacion.paginaActual,
-        buscar: typeof buscarOverride !== 'undefined' ? buscarOverride : filtros.buscar,
+        buscar: debouncedBuscar,
         estado: filtros.estado,
         turno: filtros.turno
       };
@@ -66,9 +59,9 @@ const VendedoresList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedBuscar, filtros.estado, filtros.turno, paginacion.paginaActual]);
 
-  const cargarEstadisticas = async () => {
+  const cargarEstadisticas = useCallback(async () => {
     try {
       const response = await vendedorService.getEstadisticas();
       if (response.success) {
@@ -77,7 +70,12 @@ const VendedoresList = () => {
     } catch (error) {
       console.error('Error cargando estadísticas:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    cargarVendedores();
+    cargarEstadisticas();
+  }, [cargarVendedores, cargarEstadisticas]);
 
   const handleCambiarEstado = async (id, nuevoEstado) => {
     try {
@@ -206,7 +204,7 @@ const VendedoresList = () => {
             <TrendingUp size={28} />
           </div>
           <div className="stat-content">
-            <h3>Bs. {parseFloat(estadisticas.total_ventas || 0).toFixed(2)}</h3>
+            <h3>Bs. {formatCurrency(estadisticas.total_ventas || 0)}</h3>
             <p>Total en Ventas</p>
           </div>
         </motion.div>
@@ -221,7 +219,7 @@ const VendedoresList = () => {
             <DollarSign size={28} />
           </div>
           <div className="stat-content">
-            <h3>Bs. {parseFloat(estadisticas.total_comisiones || 0).toFixed(2)}</h3>
+            <h3>Bs. {formatCurrency(estadisticas.total_comisiones || 0)}</h3>
             <p>Total en Comisiones</p>
           </div>
         </motion.div>
@@ -324,8 +322,8 @@ const VendedoresList = () => {
                       <strong className="comision">{vendedor.comision_porcentaje}%</strong>
                     </td>
                     <td>
-                      <div className="ventas-info">
-                        <div>Bs. {parseFloat(vendedor.total_ventas || 0).toFixed(2)}</div>
+                        <div className="ventas-info">
+                        <div>Bs. {formatCurrency(vendedor.total_ventas || 0)}</div>
                         <small>{vendedor.total_pedidos || 0} pedidos</small>
                       </div>
                     </td>

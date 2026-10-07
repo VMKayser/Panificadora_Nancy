@@ -6,32 +6,43 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * Cabeceras de seguridad para todas las respuestas del backend.
+ * Se registra como middleware global en bootstrap/app.php.
+ * Las de la SPA (HTML estático) se configuran en frontend/public/.htaccess.
+ */
 class SecurityHeaders
 {
-    /**
-     * Handle an incoming request and add common security headers.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \Closure  $next
-     * @return \Symfony\Component\HttpFoundation\Response
-     */
+    /** La API solo devuelve datos: no carga recursos ni se embebe en marcos. */
+    private const CSP_API = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+
+    /** Páginas HTML del backend (p. ej. /app): solo recursos propios. */
+    private const CSP_HTML = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        . "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self'; "
+        . "frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'";
+
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
 
-        // Prevent clickjacking
-        $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
-        // Prevent MIME sniffing
+        $esHtml = str_contains((string) $response->headers->get('Content-Type'), 'text/html');
+
         $response->headers->set('X-Content-Type-Options', 'nosniff');
-        // Basic Content Security Policy; adjust as needed for inline scripts/styles
-        $response->headers->set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; connect-src 'self' https:;");
-        // Referrer policy
-        $response->headers->set('Referrer-Policy', 'no-referrer-when-downgrade');
-        // XSS filter (legacy)
-        $response->headers->set('X-XSS-Protection', '1; mode=block');
-        // HSTS for HTTPS sites (only if served over HTTPS)
+        $response->headers->set('X-Frame-Options', $esHtml ? 'SAMEORIGIN' : 'DENY');
+        $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+        if (!$response->headers->has('Content-Security-Policy')) {
+            $response->headers->set('Content-Security-Policy', $esHtml ? self::CSP_HTML : self::CSP_API);
+        }
         if ($request->isSecure()) {
-            $response->headers->set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+            // Sin includeSubDomains: hay subdominios (api., www.) gestionados por Hostinger.
+            $response->headers->set('Strict-Transport-Security', 'max-age=31536000');
+        }
+
+        // No anunciar la tecnología ni la versión de PHP.
+        $response->headers->remove('X-Powered-By');
+        if (!headers_sent()) {
+            header_remove('X-Powered-By');
         }
 
         return $response;

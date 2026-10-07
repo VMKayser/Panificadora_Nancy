@@ -17,6 +17,12 @@ class TestUsersSeeder extends Seeder
      */
     public function run(): void
     {
+        // Usuarios de prueba con contraseñas conocidas: nunca en producción.
+        if (app()->environment('production')) {
+            $this->command?->warn(static::class . ' omitido: no se crean usuarios de prueba en producción.');
+            return;
+        }
+
         // Usuario Panificador/Vendedor
         \App\Models\User::query()->updateOrInsert(
             ['email' => 'vendedor@panificadoranancy.com'],

@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Pedido;
 use App\Models\Produccion;
 use App\Models\Producto;
-use App\Models\MovimientoProductoFinal;
+use App\Support\HoraNegocio;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -25,71 +25,102 @@ class InventarioDashboardController extends Controller
         // Si la tabla no existe o hay error, usar valor por defecto
         Log::warning('ConfiguracionSistema no disponible, usando TTL por defecto');
     }
-    
+
     $payload = Cache::remember('inventario.dashboard', $ttl, function() {
-            $hoy = date('Y-m-d');
+            // "Hoy" es el día en Bolivia. created_at está en UTC, así que se filtra
+            // por el rango UTC de ese día; fecha_produccion ya es una fecha local.
+            $hoy = HoraNegocio::hoy();
+            $rangoHoy = HoraNegocio::rangoUtcDelDia($hoy);
 
-            // Pedidos y ingresos hoy
-            $pedidosHoy = Pedido::whereDate('created_at', $hoy)->count();
-            $ingresosHoy = (float) Pedido::whereDate('created_at', $hoy)->sum('total');
+            // Pedidos y ingresos hoy (los ingresos solo cuentan pedidos pagados)
+            $pedidosHoy = Pedido::whereBetween('created_at', $rangoHoy)
+                ->where('estado', '!=', 'cancelado')
+                ->count();
+            $ingresosHoy = (float) Pedido::whereBetween('created_at', $rangoHoy)
+                ->where('estado_pago', 'pagado')
+                ->where('estado', '!=', 'cancelado')
+                ->sum('total');
 
-            // Producción hoy (cantidad_producida de producciones completadas)
+            // Producción hoy en unidades (las docenas ya están convertidas; los kg no son unidades)
             $produccionHoy = (float) Produccion::whereDate('fecha_produccion', $hoy)
                 ->where('estado', 'completado')
-                ->sum('cantidad_producida');
+                ->sum('cantidad_unidades');
 
-            // Productos con stock por debajo del mínimo
-            $stockBajo = Producto::whereHas('inventario', function($q) {
-                $q->whereColumn('stock_actual', '<=', 'stock_minimo');
-            })->count();
+            // Productos activos con stock por debajo del mínimo
+            $stockBajo = Producto::where('esta_activo', true)
+                ->whereHas('inventario', function($q) {
+                    $q->whereColumn('stock_actual', '<=', 'stock_minimo');
+                })->count();
 
-            // Panaderos con más producción (hoy)
-            $panaderos = Produccion::select('user_id', DB::raw('SUM(cantidad_producida) as produccion'))
+            // Panaderos con más producción hoy (por panadero asignado, no por quien la registró)
+            $panaderos = Produccion::select('panadero_id', DB::raw('SUM(cantidad_unidades) as produccion'))
                 ->whereDate('fecha_produccion', $hoy)
                 ->where('estado', 'completado')
-                ->groupBy('user_id')
-                ->with('user')
+                ->whereNotNull('panadero_id')
+                ->groupBy('panadero_id')
+                ->with('panadero.user')
                 ->orderByDesc('produccion')
                 ->limit(10)
                 ->get()
                 ->map(function($p){
                     return [
-                        'id' => $p->user_id,
-                        'nombre' => $p->user?->name ?? ('Usuario '.$p->user_id),
+                        'id' => $p->panadero_id,
+                        'nombre' => $p->panadero?->nombre_completo ?? ('Panadero '.$p->panadero_id),
                         'produccion' => (float) $p->produccion
                     ];
                 })->values();
 
-            // Productos: ventas y profit en últimos 7 días
-            $fechaDesde = date('Y-m-d', strtotime('-6 days'));
-            $ventasPorProducto = DB::table('detalle_pedidos')
-                ->select('productos_id', DB::raw('SUM(cantidad) as ventas'), DB::raw('SUM(subtotal) as ingresos'))
-                ->whereDate('created_at', '>=', $fechaDesde)
-                ->groupBy('productos_id')
+            // Productos: unidades vendidas, ingresos y ganancia de los últimos 7 días.
+            // Solo pedidos pagados y no cancelados; los extras no cuentan como
+            // unidades del producto principal.
+            [$desde] = HoraNegocio::rangoUtcDelDia(now(HoraNegocio::zona())->subDays(6)->toDateString());
+            $ventasPorProducto = DB::table('detalle_pedidos as d')
+                ->join('pedidos as p', 'p.id', '=', 'd.pedidos_id')
+                ->whereNull('p.deleted_at')
+                ->where('p.estado_pago', 'pagado')
+                ->where('p.estado', '!=', 'cancelado')
+                ->where('p.created_at', '>=', $desde)
+                ->where('d.es_extra', false)
+                ->select('d.productos_id', DB::raw('SUM(d.cantidad) as ventas'), DB::raw('SUM(d.subtotal) as ingresos'))
+                ->groupBy('d.productos_id')
                 ->get();
+
+            $productosInfo = Producto::withTrashed()
+                ->with('inventario')
+                ->whereIn('id', $ventasPorProducto->pluck('productos_id'))
+                ->get()
+                ->keyBy('id');
 
             $productos = [];
             foreach ($ventasPorProducto as $row) {
-                $producto = Producto::with('inventario')->find($row->productos_id);
-                $costoPromedio = $producto?->inventario?->costo_promedio ?? 0;
-                $profit = (float) $row->ingresos - ($costoPromedio * (float) $row->ventas);
+                $producto = $productosInfo->get($row->productos_id);
+                $costoPromedio = (float) ($producto?->inventario?->costo_promedio ?? 0);
                 $productos[] = [
                     'id' => $producto?->id ?? $row->productos_id,
                     'nombre' => $producto?->nombre ?? ('Producto '.$row->productos_id),
                     'ventas' => (float) $row->ventas,
-                    'profit' => round($profit, 2)
+                    'ingresos' => round((float) $row->ingresos, 2),
+                    // Sin costo registrado la ganancia sería el 100% del ingreso: no se calcula
+                    'costo_conocido' => $costoPromedio > 0,
+                    'profit' => $costoPromedio > 0
+                        ? round((float) $row->ingresos - ($costoPromedio * (float) $row->ventas), 2)
+                        : null,
                 ];
             }
 
-            // Ventas por temporada (últimos 7 días)
+            // Ventas de los últimos 7 días (días de Bolivia)
             $ventasPorDia = [];
             for ($i = 6; $i >= 0; $i--) {
-                $d = date('Y-m-d', strtotime("-{$i} days"));
-                $ventas = (int) Pedido::whereDate('created_at', $d)->sum('total');
-                $ventasPorDia[] = ['fecha' => $d, 'ventas' => $ventas];
+                $d = now(HoraNegocio::zona())->subDays($i)->toDateString();
+                $ventas = (float) Pedido::whereBetween('created_at', HoraNegocio::rangoUtcDelDia($d))
+                    ->where('estado_pago', 'pagado')
+                    ->where('estado', '!=', 'cancelado')
+                    ->sum('total');
+                $ventasPorDia[] = ['fecha' => $d, 'ventas' => round($ventas, 2)];
             }
 
             return [
+                'fecha' => $hoy,
                 'pedidos_hoy' => (int) $pedidosHoy,
                 'ingresos_hoy' => round($ingresosHoy, 2),
                 'produccion_hoy' => (float) $produccionHoy,

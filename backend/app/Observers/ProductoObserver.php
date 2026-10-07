@@ -65,19 +65,18 @@ class ProductoObserver
     private function ensureInventarioExists(Producto $producto): void
     {
         try {
-            // Use updateOrInsert on the query builder to avoid creating nested
-            // transactions/savepoints inside model observers (firstOrCreate
-            // may wrap in a transaction). This reduces the chance of Laravel's
-            // internal transaction counter getting out-of-sync with PDO
-            // when observers run during factory/test setup.
-            InventarioProductoFinal::query()->updateOrInsert(
-                ['producto_id' => $producto->id],
-                [
-                    'stock_actual' => 0,
-                    'stock_minimo' => 0,
-                    'costo_promedio' => 0,
-                ]
-            );
+            // insertOrIgnore (producto_id es único): crea la fila si falta y no
+            // toca una existente. updateOrInsert ponía el stock en 0 al
+            // reactivar un producto. Además evita transacciones anidadas
+            // dentro del observer.
+            InventarioProductoFinal::insertOrIgnore([
+                'producto_id' => $producto->id,
+                'stock_actual' => 0,
+                'stock_minimo' => 0,
+                'costo_promedio' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
         } catch (\Throwable $e) {
             Log::warning("No se pudo crear inventario para producto {$producto->id}: " . $e->getMessage());
         }

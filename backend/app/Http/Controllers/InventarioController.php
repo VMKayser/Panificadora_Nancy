@@ -9,9 +9,15 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use App\Support\MensajeError;
+use App\Http\Controllers\Concerns\ListadoSeguro;
 
 class InventarioController extends Controller
 {
+    use ListadoSeguro;
+
     /**
      * Dashboard general de inventario
      */
@@ -134,7 +140,7 @@ class InventarioController extends Controller
 
         // If client requests pagination, use it to avoid returning giant payloads.
         if ($request->has('per_page')) {
-            $perPage = (int) $request->get('per_page', 20);
+            $perPage = $this->porPagina($request, 20);
             $pag = $query->orderByRaw('COALESCE(i.stock_actual,0) asc')->paginate($perPage);
             $pag->getCollection()->transform(function ($row) {
                 return [
@@ -193,22 +199,31 @@ class InventarioController extends Controller
         }
 
         $movimientos = $query->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 20));
+            ->paginate($this->porPagina($request, 20));
 
         return response()->json($movimientos);
     }
 
     /**
      * Registrar ajuste de inventario de producto final
+     *
+     * Formas de uso:
+     * - cantidad + direccion (entrada|salida): el servidor aplica el cambio sobre el
+     *   stock actual con la fila bloqueada, así no se pisan ventas simultáneas.
+     * - nuevo_stock: fija el stock (conteo físico). Se mantiene por compatibilidad.
+     * El tipo de movimiento sale del motivo (merma → salida_merma,
+     * degustacion → salida_degustacion) salvo que venga tipo_movimiento.
      */
     public function ajustarInventarioProducto(Request $request, $productoId)
     {
         $validator = Validator::make($request->all(), [
-            'nuevo_stock' => 'required|numeric|min:0',
+            'cantidad' => 'required_without:nuevo_stock|nullable|numeric|gt:0',
+            'direccion' => 'required_with:cantidad|nullable|in:entrada,salida',
+            'nuevo_stock' => 'required_without:cantidad|nullable|numeric|min:0',
             'motivo' => 'required|string',
             'observaciones' => 'nullable|string',
             'produccion_id' => 'nullable|exists:producciones,id',
-            'tipo_movimiento' => 'nullable|string'
+            'tipo_movimiento' => ['nullable', Rule::in(self::TIPOS_MOVIMIENTO)],
         ]);
 
         if ($validator->fails()) {
@@ -218,41 +233,49 @@ class InventarioController extends Controller
             ], 422);
         }
 
+        Producto::findOrFail($productoId);
+
         try {
             $result = DB::transaction(function () use ($productoId, $request) {
-                // Ensure an inventory row exists but do NOT overwrite existing stock_actual.
-                // Use an existence check + insert to avoid update semantics that would reset stock.
-                $exists = InventarioProductoFinal::where('producto_id', $productoId)->exists();
-                if (! $exists) {
-                    InventarioProductoFinal::insert([
-                        'producto_id' => $productoId,
-                        'stock_actual' => 0,
-                        'stock_minimo' => 0,
-                        'costo_promedio' => 0,
-                        'created_at' => now(),
-                        'updated_at' => now(),
+                // Crear la fila si falta, sin tocar el stock de una existente
+                InventarioProductoFinal::insertOrIgnore([
+                    'producto_id' => $productoId,
+                    'stock_actual' => 0,
+                    'stock_minimo' => 0,
+                    'costo_promedio' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $inventario = InventarioProductoFinal::where('producto_id', $productoId)->lockForUpdate()->first();
+                $stockAnterior = (float) $inventario->stock_actual;
+
+                if ($request->filled('cantidad')) {
+                    $cambio = (float) $request->cantidad * ($request->direccion === 'salida' ? -1 : 1);
+                    $nuevoStock = $stockAnterior + $cambio;
+                    if ($nuevoStock < 0) {
+                        throw ValidationException::withMessages([
+                            'cantidad' => "No hay suficiente stock: hay {$stockAnterior} y se quieren sacar {$request->cantidad}.",
+                        ]);
+                    }
+                } else {
+                    $nuevoStock = (float) $request->nuevo_stock;
+                }
+                $diferencia = $nuevoStock - $stockAnterior;
+
+                $tipoMovimiento = $request->input('tipo_movimiento')
+                    ?? $this->tipoMovimientoPorMotivo($request->motivo, $diferencia, $request->filled('produccion_id'));
+
+                if ((str_starts_with($tipoMovimiento, 'salida_') && $diferencia > 0)
+                    || ($tipoMovimiento === 'entrada_produccion' && $diferencia < 0)) {
+                    throw ValidationException::withMessages([
+                        'tipo_movimiento' => "Un movimiento de tipo {$tipoMovimiento} no puede " . ($diferencia > 0 ? 'aumentar' : 'disminuir') . ' el stock.',
                     ]);
                 }
 
-                $inventario = InventarioProductoFinal::where('producto_id', $productoId)->first();
-
-                $stockAnterior = $inventario->stock_actual;
-                $diferencia = $request->nuevo_stock - $stockAnterior;
-
-                // Actualizar stock
                 $inventario->update([
-                    'stock_actual' => $request->nuevo_stock
+                    'stock_actual' => $nuevoStock
                 ]);
-
-                // Determinar tipo de movimiento
-                $tipoMovimiento = $request->input('tipo_movimiento');
-                if (!$tipoMovimiento) {
-                    if ($request->has('produccion_id')) {
-                        $tipoMovimiento = 'entrada_produccion';
-                    } else {
-                        $tipoMovimiento = 'ajuste';
-                    }
-                }
 
                 // Registrar movimiento (incluir produccion_id si viene)
                 MovimientoProductoFinal::create([
@@ -260,7 +283,7 @@ class InventarioController extends Controller
                     'tipo_movimiento' => $tipoMovimiento,
                     'cantidad' => abs($diferencia),
                     'stock_anterior' => $stockAnterior,
-                    'stock_nuevo' => $request->nuevo_stock,
+                    'stock_nuevo' => $nuevoStock,
                     'produccion_id' => $request->input('produccion_id') ?? null,
                     'user_id' => Auth::id() ?? null,
                     'observaciones' => "Motivo: {$request->motivo}. {$request->observaciones}"
@@ -274,11 +297,31 @@ class InventarioController extends Controller
                 'data' => $result
             ]);
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al ajustar inventario: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al ajustar inventario')
             ], 500);
         }
+    }
+
+    /** Tipos permitidos por la columna movimientos_productos_finales.tipo_movimiento */
+    private const TIPOS_MOVIMIENTO = ['entrada_produccion', 'salida_venta', 'salida_merma', 'salida_degustacion', 'ajuste'];
+
+    private function tipoMovimientoPorMotivo(?string $motivo, float $diferencia, bool $conProduccion): string
+    {
+        if ($conProduccion && $diferencia >= 0) {
+            return 'entrada_produccion';
+        }
+        if ($diferencia < 0) {
+            return match ($motivo) {
+                'merma' => 'salida_merma',
+                'degustacion' => 'salida_degustacion',
+                default => 'ajuste',
+            };
+        }
+        return 'ajuste';
     }
 
     /**
@@ -298,7 +341,8 @@ class InventarioController extends Controller
                 DB::raw("SUM(CASE WHEN tipo_movimiento = 'salida_merma' THEN cantidad ELSE 0 END) as mermas"),
                 DB::raw("SUM(CASE WHEN tipo_movimiento IN ('salida_venta','venta') THEN cantidad ELSE 0 END) as ventas")
             )
-            ->whereBetween('movimientos_productos_finales.created_at', [$fechaDesde, $fechaHasta])
+            ->whereDate('movimientos_productos_finales.created_at', '>=', $fechaDesde)
+            ->whereDate('movimientos_productos_finales.created_at', '<=', $fechaHasta)
             ->join('productos', 'movimientos_productos_finales.producto_id', '=', 'productos.id')
             ->whereNull('productos.deleted_at')
             ->groupBy('producto_id')
@@ -353,7 +397,7 @@ class InventarioController extends Controller
         // If dataset is large, paginate to avoid memory spikes
         $count = $query->count();
         if ($count > 2000 || $request->has('per_page')) {
-            $perPage = (int) $request->get('per_page', 1000);
+            $perPage = $this->porPagina($request, 1000, 2000);
             $movPage = $query->orderBy('created_at', 'asc')->paginate($perPage);
             $producto = Producto::findOrFail($productoId);
             return response()->json([
@@ -394,19 +438,23 @@ class InventarioController extends Controller
                 DB::raw('COUNT(*) as registros')
             )
             ->where('tipo_movimiento', 'salida_merma')
-            ->whereBetween('movimientos_productos_finales.created_at', [$fechaDesde, $fechaHasta])
+            ->whereDate('movimientos_productos_finales.created_at', '>=', $fechaDesde)
+            ->whereDate('movimientos_productos_finales.created_at', '<=', $fechaHasta)
             ->join('productos', 'movimientos_productos_finales.producto_id', '=', 'productos.id')
             ->whereNull('productos.deleted_at')
             ->groupBy('producto_id')
             ->get();
 
         $total_mermas = (float) MovimientoProductoFinal::where('tipo_movimiento', 'salida_merma')
-            ->whereBetween('movimientos_productos_finales.created_at', [$fechaDesde, $fechaHasta])->sum('cantidad');
+            ->whereDate('movimientos_productos_finales.created_at', '>=', $fechaDesde)
+            ->whereDate('movimientos_productos_finales.created_at', '<=', $fechaHasta)
+            ->sum('cantidad');
 
         // por_dia aggregation
         $porDia = MovimientoProductoFinal::select(DB::raw("DATE(movimientos_productos_finales.created_at) as fecha"), DB::raw('SUM(cantidad) as cantidad'), DB::raw('COUNT(*) as registros'))
             ->where('tipo_movimiento', 'salida_merma')
-            ->whereBetween('movimientos_productos_finales.created_at', [$fechaDesde, $fechaHasta])
+            ->whereDate('movimientos_productos_finales.created_at', '>=', $fechaDesde)
+            ->whereDate('movimientos_productos_finales.created_at', '<=', $fechaHasta)
             ->groupBy(DB::raw('DATE(created_at)'))
             ->orderBy('fecha')
             ->get();

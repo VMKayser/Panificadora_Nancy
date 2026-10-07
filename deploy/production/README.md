@@ -52,7 +52,10 @@ Coloca `deploy/production/healthcheck.php` en `public/healthcheck.php` o configu
 
 Backup
 ------
-Implementa respaldos periódicos de la DB (mysqldump) y del directorio `storage/`. Guarda en S3 o disco remoto.
+Antes de cada despliegue se hace un respaldo completo (código, `vendor/`, `.env`, `storage/`, frontend publicado y
+volcado de la BD) en `~/backups/predeploy-<fecha UTC>/` del servidor, con `SHA256SUMS`, `revertir.sh` y una copia
+externa en la máquina de desarrollo. Procedimiento, cómo revertir y registro de despliegues:
+`deploy/production/RESPALDOS-Y-DESPLIEGUE.md`.
 
 Notas de seguridad
 ------------------

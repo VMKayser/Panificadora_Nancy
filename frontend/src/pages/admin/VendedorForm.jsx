@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
@@ -35,29 +35,7 @@ const VendedorForm = () => {
   }, []);
 
   // Cargar datos en modo edición
-  useEffect(() => {
-    if (isEditMode) {
-      cargarVendedor();
-    }
-  }, [id]);
-
-  const cargarUsuariosDisponibles = async () => {
-    try {
-      setLoadingUsuarios(true);
-      const response = await userService.getUsuariosDisponiblesVendedor();
-      
-      if (response.success) {
-        setUsuariosDisponibles(response.data);
-      }
-    } catch (error) {
-      console.error('Error cargando usuarios:', error);
-      toast.error('Error al cargar usuarios disponibles');
-    } finally {
-      setLoadingUsuarios(false);
-    }
-  };
-
-  const cargarVendedor = async () => {
+  const cargarVendedor = useCallback(async () => {
     try {
       setLoadingData(true);
       const response = await vendedorService.getById(id);
@@ -92,6 +70,28 @@ const VendedorForm = () => {
       navigate('/admin/empleados/vendedores');
     } finally {
       setLoadingData(false);
+    }
+  }, [id, navigate]);
+
+  useEffect(() => {
+    if (isEditMode) {
+      cargarVendedor();
+    }
+  }, [isEditMode, cargarVendedor]);
+
+  const cargarUsuariosDisponibles = async () => {
+    try {
+      setLoadingUsuarios(true);
+      const response = await userService.getUsuariosDisponiblesVendedor();
+      
+      if (response.success) {
+        setUsuariosDisponibles(response.data);
+      }
+    } catch (error) {
+      console.error('Error cargando usuarios:', error);
+      toast.error('Error al cargar usuarios disponibles');
+    } finally {
+      setLoadingUsuarios(false);
     }
   };
 

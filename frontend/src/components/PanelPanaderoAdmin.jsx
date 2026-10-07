@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import '../styles/estilosPanadero.css';
+import { formatCurrency } from '../utils/number';
 
 const PanelPanaderoAdmin = () => {
     const [sueldoPorKg, setSueldoPorKg] = useState(0.30);
-    const [panaderos, setPanaderos] = useState([
+    const [panaderos] = useState([
         {
             id: 1,
             nombre: "Panadero 1",
@@ -31,7 +32,7 @@ const PanelPanaderoAdmin = () => {
         <div>
             <div className="Sueldo" style={{ margin: '1%' }}>
                 <span>Sueldo por kg: </span><br />
-                <span>Bs. {sueldoPorKg.toFixed(2)}</span>
+                <span>Bs. {formatCurrency(sueldoPorKg)}</span>
                 <button onClick={cambiarsueldo}>Cambiar Sueldo</button>
             </div>
             
@@ -50,7 +51,7 @@ const PanelPanaderoAdmin = () => {
                             <td>{panadero.nombre}</td>
                             <td>{panadero.totalProducido}</td>
                             <td>{panadero.mes}</td>
-                            <td>Bs. {panadero.sueldoAcumulado.toFixed(2)}</td>
+                            <td>Bs. {formatCurrency(panadero.sueldoAcumulado)}</td>
                         </tr>
                     ))}
                 </tbody>

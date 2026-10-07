@@ -15,7 +15,7 @@ class SendPedidoConfirmadoMail implements ShouldQueue
     use Dispatchable, Queueable, SerializesModels;
 
     /** @var \App\Models\Pedido */
-    protected $pedido;
+    public $pedido;
 
     /**
      * Create a new job instance.
@@ -35,6 +35,10 @@ class SendPedidoConfirmadoMail implements ShouldQueue
      */
     public function handle()
     {
+        if (!$this->pedido->cliente_email) {
+            return;
+        }
+
         try {
             Mail::to($this->pedido->cliente_email)->send(new PedidoConfirmado($this->pedido));
         } catch (\Exception $e) {

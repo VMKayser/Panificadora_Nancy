@@ -107,6 +107,11 @@ export const configuracionService = {
     return api.get(`/admin/configuraciones/${clave}/valor`);
   },
 
+  // Obtener valor público (accesible para todos)
+  getPublicValue: (clave) => {
+    return api.get(`/configuraciones/public/${clave}/valor`);
+  },
+
   // Crear o actualizar configuración
   save: (data) => {
     return api.post('/admin/configuraciones', data);

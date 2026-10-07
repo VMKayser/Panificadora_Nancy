@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Table, Button, Alert, Spinner, Badge, Card, Row, Col, Form, Modal } from 'react-bootstrap';
 import { admin } from '../../services/api';
+import { formatCurrency } from '../../utils/number';
 import { toast } from 'react-toastify';
 
-export default function VendedoresPanel() {
+export default function VendedoresPanel({ onOpenPayments }) {
   const [vendedores, setVendedores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [estadisticas, setEstadisticas] = useState(null);
@@ -31,11 +32,7 @@ export default function VendedoresPanel() {
   const [pagarVendedor, setPagarVendedor] = useState(null);
   const [pagoForm, setPagoForm] = useState({ monto: '', comision_pagada: '', tipo_pago: 'comision', notas: '' });
 
-  useEffect(() => {
-    cargarDatos();
-  }, [filtros]);
-
-  const cargarDatos = async () => {
+  const cargarDatos = useCallback(async () => {
     try {
       setLoading(true);
       // clean filters
@@ -52,23 +49,17 @@ export default function VendedoresPanel() {
       setVendedores(vendedoresData.data || vendedoresData);
       setEstadisticas(statsData);
     } catch (error) {
-      console.error('Error al cargar vendedores:', error);
-      toast.error('Error al cargar vendedores');
+  if (import.meta.env.DEV) console.error('Error al cargar vendedores:', error);
+  else console.error('Error al cargar vendedores');
+  toast.error('Error al cargar vendedores');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filtros]);
 
-  const handleActualizarVendedor = async (id, data) => {
-    try {
-      await admin.actualizarVendedor(id, data);
-      toast.success('Vendedor actualizado exitosamente');
-      cargarDatos();
-    } catch (error) {
-      toast.error('Error al actualizar vendedor');
-      console.error(error);
-    }
-  };
+  useEffect(() => {
+    cargarDatos();
+  }, [cargarDatos]);
 
   const handleEliminar = async (id, nombre) => {
     if (!window.confirm(`¿Estás seguro de eliminar al vendedor "${nombre}"?`)) return;
@@ -96,24 +87,6 @@ export default function VendedoresPanel() {
     setFiltros(prev => ({ ...prev, [campo]: valor }));
   };
 
-  const handleNuevo = () => {
-    setEditing(null);
-    setForm({
-      user_id: null,
-      name: '',
-      email: '',
-      comision_porcentaje: 2.5,
-      descuento_maximo_bs: 50,
-      puede_dar_descuentos: false,
-      puede_cancelar_ventas: false,
-      turno: '',
-      fecha_ingreso: '',
-      estado: 'activo',
-      observaciones: ''
-    });
-    setShowModal(true);
-  };
-
   const handleFormChange = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
   const handleSubmit = async (e) => {
@@ -131,7 +104,8 @@ export default function VendedoresPanel() {
       setShowModal(false);
       cargarDatos();
     } catch (err) {
-      console.error('Error guardando vendedor:', err);
+  if (import.meta.env.DEV) console.error('Error guardando vendedor:', err);
+  else console.error('Error guardando vendedor');
       toast.error(err.response?.data?.message || 'Error guardando vendedor');
     }
   };
@@ -196,7 +170,8 @@ export default function VendedoresPanel() {
       cargarDatos();
       toast.success('Pago registrado');
     } catch (err) {
-      console.error('Error registrando pago:', err);
+  if (import.meta.env.DEV) console.error('Error registrando pago:', err);
+  else console.error('Error registrando pago');
       toast.error(err.response?.data?.message || 'Error registrando pago');
     }
   };
@@ -243,7 +218,7 @@ export default function VendedoresPanel() {
               <Card.Body>
                 <h6 className="text-muted">Ingresos del Mes</h6>
                 <h2 className="text-success">
-                  Bs. {parseFloat(estadisticas.ingresos_mes || 0).toFixed(2)}
+                  Bs. {formatCurrency(estadisticas.ingresos_mes || 0)}
                 </h2>
               </Card.Body>
             </Card>
@@ -299,7 +274,7 @@ export default function VendedoresPanel() {
 
       {/* Título */}
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <h4>👥 Gestión de Vendedores</h4>
+        <h4>Gestión de Vendedores</h4>
         {/* Botón removido: Los vendedores se crean desde el Panel de Clientes cambiando el rol */}
       </div>
 
@@ -327,9 +302,9 @@ export default function VendedoresPanel() {
                 <td>{vendedor.id}</td>
                 <td>{vendedor.user?.name || 'Sin nombre'}</td>
                 <td>{vendedor.user?.email || vendedor.email || 'N/A'}</td>
-                <td>Bs. {parseFloat(vendedor.total_vendido || 0).toFixed(2)}</td>
-                <td>{parseFloat(vendedor.comision_porcentaje || 0).toFixed(2)}%</td>
-                <td>Bs. {parseFloat(vendedor.comision_acumulada || 0).toFixed(2)}</td>
+                <td>Bs. {formatCurrency(vendedor.total_vendido || 0)}</td>
+                <td>{formatCurrency(vendedor.comision_porcentaje || 0)}%</td>
+                <td>Bs. {formatCurrency(vendedor.comision_acumulada || 0)}</td>
                 <td>{new Date(vendedor.created_at).toLocaleDateString()}</td>
                 <td>
                   <Badge bg={vendedor.estado === 'activo' ? 'success' : vendedor.estado === 'inactivo' ? 'secondary' : 'warning'}>

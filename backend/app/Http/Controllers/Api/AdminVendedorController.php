@@ -13,6 +13,7 @@ use App\Models\Role;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Database\QueryException;
+use App\Support\PasswordPolicy;
 
 class AdminVendedorController extends Controller
 {
@@ -89,7 +90,7 @@ class AdminVendedorController extends Controller
             'nombre' => 'required|string|max:100',
             'apellido' => 'required|string|max:100',
             'email' => 'required|email',
-            'password' => 'sometimes|nullable|string|min:6',
+            'password' => array_merge(['sometimes', 'nullable'], PasswordPolicy::rules()),
             'mark_verified' => 'sometimes|boolean',
             'telefono' => 'sometimes|nullable|string|max:20',
             'direccion' => 'sometimes|nullable|string',
@@ -100,7 +101,7 @@ class AdminVendedorController extends Controller
             'salario_base' => 'sometimes|numeric|min:0',
             'observaciones' => 'sometimes|nullable|string',
             'ci' => $ciRule,
-        ]);
+        ], PasswordPolicy::messages());
 
         // Buscar o crear el User
         $user = User::firstWhere('email', $validated['email']);

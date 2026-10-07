@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Table, Button, Spinner, Row, Col, Form, Modal, Card } from 'react-bootstrap';
+import { useEffect, useState, useCallback } from 'react';
+import { Table, Button, Spinner, Row, Col, Form, Modal } from 'react-bootstrap';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
+import { formatCurrency } from '../../utils/number';
 
 export default function EmpleadoPagosPanel({ initialFilters = {}, openCreateFor = null }) {
   const [pagos, setPagos] = useState([]);
@@ -10,7 +11,14 @@ export default function EmpleadoPagosPanel({ initialFilters = {}, openCreateFor 
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ empleado_tipo: 'panadero', empleado_id: '', monto: '', kilos_pagados: '', comision_pagada: '', tipo_pago: 'pago_produccion', notas: '' });
 
-  const cargar = async () => {
+  // Apply initial filters once when component mounts or when initialFilters change
+  useEffect(() => {
+    if (initialFilters && Object.keys(initialFilters).length > 0) {
+      setFiltros(prev => ({ ...prev, ...initialFilters }));
+    }
+  }, [initialFilters]);
+
+  const cargar = useCallback(async () => {
     try {
       setLoading(true);
       const data = await admin.listarEmpleadoPagos(filtros);
@@ -21,17 +29,9 @@ export default function EmpleadoPagosPanel({ initialFilters = {}, openCreateFor 
     } finally {
       setLoading(false);
     }
-  };
+  }, [filtros]);
 
-  // Apply initial filters once when component mounts or when initialFilters change
-  useEffect(() => {
-    if (initialFilters && Object.keys(initialFilters).length > 0) {
-      setFiltros(prev => ({ ...prev, ...initialFilters }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialFilters]);
-
-  useEffect(() => { cargar(); }, [filtros]);
+  useEffect(() => { cargar(); }, [cargar]);
 
   // If parent asks to open create modal for a specific employee, prefill and open
   useEffect(() => {
@@ -114,7 +114,7 @@ export default function EmpleadoPagosPanel({ initialFilters = {}, openCreateFor 
               <td>{p.id}</td>
               <td>{p.empleado_tipo} #{p.empleado_id}</td>
               <td>{p.tipo_pago || 'N/A'}</td>
-              <td>Bs. {parseFloat(p.monto || 0).toFixed(2)}</td>
+              <td>Bs. {formatCurrency(p.monto || 0)}</td>
               <td>{p.kilos_pagados ? `${p.kilos_pagados} kg` : p.comision_pagada ? `Bs. ${p.comision_pagada}` : '-'}</td>
               <td>{p.notas || ''}</td>
               <td>{new Date(p.created_at).toLocaleString()}</td>

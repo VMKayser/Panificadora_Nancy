@@ -4,6 +4,7 @@ import { admin, assetBase } from '../../services/api';
 import { toast } from 'react-toastify';
 import PropTypes from 'prop-types';
 import RecetaForm from './RecetaForm';
+import { usarImagenRespaldo } from '../../utils/imagen';
 
 const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
   const [formData, setFormData] = useState({
@@ -13,9 +14,9 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
     descripcion_corta: '',
     precio_minorista: '',
     precio_mayorista: '',
+    precio_por_confirmar: false,
     cantidad_minima_mayoreo: '10',
     unidad_medida: 'unidad',
-    cantidad: '1',
     presentacion: '',
     es_de_temporada: false,
     esta_activo: true,
@@ -24,6 +25,8 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
     requiere_tiempo_anticipacion: false,
     tiempo_anticipacion: '',
     unidad_tiempo: 'horas',
+    pedidos_hasta: '',
+    etiqueta_personalizacion: '',
     limite_produccion: '',
     tiene_extras: false,
     extras_disponibles: [],
@@ -35,6 +38,7 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
   const [loading, setLoading] = useState(false);
   const [showRecetaModal, setShowRecetaModal] = useState(false);
   const [recetaActual, setRecetaActual] = useState(null);
+  const [hasReceta, setHasReceta] = useState(false);
 
   useEffect(() => {
     if (producto) {
@@ -45,11 +49,9 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
         descripcion_corta: producto.descripcion_corta || '',
         precio_minorista: producto.precio_minorista || '',
         precio_mayorista: producto.precio_mayorista || '',
+        precio_por_confirmar: Boolean(producto.precio_por_confirmar),
         cantidad_minima_mayoreo: producto.cantidad_minima_mayoreo || '10',
         unidad_medida: producto.unidad_medida || 'unidad',
-        cantidad: (producto.inventario && producto.inventario.stock_actual !== undefined)
-          ? String(producto.inventario.stock_actual)
-          : '1',
         presentacion: producto.presentacion || '',
         es_de_temporada: producto.es_de_temporada || false,
         esta_activo: producto.esta_activo !== undefined ? producto.esta_activo : true,
@@ -58,6 +60,8 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
         requiere_tiempo_anticipacion: producto.requiere_tiempo_anticipacion || false,
         tiempo_anticipacion: producto.tiempo_anticipacion || '',
         unidad_tiempo: producto.unidad_tiempo || 'horas',
+        pedidos_hasta: producto.pedidos_hasta ? String(producto.pedidos_hasta).slice(0, 10) : '',
+        etiqueta_personalizacion: producto.etiqueta_personalizacion || '',
         limite_produccion: producto.limite_produccion || '',
         tiene_extras: producto.tiene_extras || false,
         extras_disponibles: producto.extras_disponibles || [],
@@ -72,6 +76,30 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
         });
         setImagenes(urls);
         setImagenesPreview(urls);
+      }
+      // Determine quickly if producto has a receta to avoid label flicker.
+      // If the API already included relation `producto.receta` or `producto.receta_id`, use that.
+      if (producto.receta || producto.receta_id) {
+        setHasReceta(true);
+        // If receta object is present, keep it in state so modal opens immediately for edit
+        if (producto.receta) setRecetaActual(producto.receta);
+      } else {
+        // If not present, try a lightweight existence check in background
+        (async () => {
+          try {
+            const resp = await admin.getRecetas({ producto_id: producto.id, per_page: 1 });
+            const found = resp?.data?.[0] || (Array.isArray(resp) ? resp[0] : null);
+            if (found) {
+              setHasReceta(true);
+              setRecetaActual(found);
+            } else {
+              setHasReceta(false);
+            }
+          } catch (err) {
+            if (import.meta.env.DEV) console.debug('No se pudo comprobar existencia de receta:', err?.message || err);
+            // leave hasReceta false — user can still create
+          }
+        })();
       }
     }
   }, [producto]);
@@ -92,19 +120,19 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
     setUploading(true);
 
     try {
-      console.log('Iniciando subida de imágenes:', files.length);
+  if (import.meta.env.DEV) console.debug('Iniciando subida de imágenes:', files.length);
       
       const uploadPromises = files.map(async (file) => {
-        console.log('Subiendo archivo:', file.name, 'Tamaño:', file.size, 'bytes');
-        const result = await admin.uploadImage(file);
-        console.log('Resultado de subida:', result);
+  if (import.meta.env.DEV) console.debug('Subiendo archivo:', file.name, 'Tamaño:', file.size, 'bytes');
+  const result = await admin.uploadImage(file);
+  if (import.meta.env.DEV) console.debug('Resultado de subida:', result);
         return result;
       });
       
       const results = await Promise.all(uploadPromises);
       
-      const urls = results.map(res => res.url);
-      console.log('URLs recibidas:', urls);
+  const urls = results.map(res => res.url);
+  if (import.meta.env.DEV) console.debug('URLs recibidas:', urls);
       
       setImagenes(prev => [...prev, ...urls]);
       setImagenesPreview(prev => [...prev, ...urls]);
@@ -112,7 +140,7 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
       toast.success(`${files.length} imagen(es) subida(s) exitosamente`);
     } catch (error) {
       console.error('Error completo:', error);
-      console.error('Respuesta del error:', error.response);
+      if (import.meta.env.DEV) console.error('Respuesta del error:', error.response);
       const errorMessage = error.response?.data?.message 
         || error.response?.data?.error 
         || error.message 
@@ -166,6 +194,9 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
       // Procesar extras para asegurar que los precios sean números
       const extrasProcesados = formData.tiene_extras 
         ? formData.extras_disponibles.map(extra => ({
+            // La descripción y la foto del extra no se editan aquí, pero se conservan
+            ...(extra.descripcion ? { descripcion: extra.descripcion } : {}),
+            ...(extra.imagen_url ? { imagen_url: extra.imagen_url } : {}),
             nombre: (extra.nombre || '').trim(),
             precio: parseFloat(extra.precio) || 0
           })).filter(e => e.nombre !== '') // remove empty-named extras
@@ -176,11 +207,12 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
         imagenes: imagenes,
         precio_minorista: parseFloat(formData.precio_minorista),
         precio_mayorista: formData.precio_mayorista ? parseFloat(formData.precio_mayorista) : null,
-  cantidad: formData.cantidad ? parseFloat(formData.cantidad) : 0,
         limite_produccion: formData.limite_produccion && parseInt(formData.limite_produccion) > 0 
           ? parseInt(formData.limite_produccion) 
           : null,
         tiempo_anticipacion: formData.tiempo_anticipacion ? parseInt(formData.tiempo_anticipacion) : null,
+        pedidos_hasta: formData.pedidos_hasta || null,
+        etiqueta_personalizacion: formData.etiqueta_personalizacion.trim() || null,
   // Only include extras_disponibles when tiene_extras is true (or explicitly empty array when enabled)
   ...(formData.tiene_extras ? { extras_disponibles: extrasProcesados || [] } : { tiene_extras: false, extras_disponibles: null }),
       };
@@ -295,6 +327,20 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
             </Col>
           </Row>
 
+          <Form.Group className="mb-3">
+            <Form.Check
+              type="checkbox"
+              id="precio_por_confirmar"
+              name="precio_por_confirmar"
+              label="Precio por confirmar"
+              checked={formData.precio_por_confirmar}
+              onChange={handleInputChange}
+            />
+            <Form.Text className="text-muted">
+              La tienda muestra «Precio por confirmar» y el cliente consulta por WhatsApp: no se puede pedir por la web.
+            </Form.Text>
+          </Form.Group>
+
           <Row>
             <Col md={6}>
               <Form.Group className="mb-3">
@@ -315,7 +361,7 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
                 </Form.Select>
               </Form.Group>
             </Col>
-            {/* NOTE: cantidad is now managed by inventory (server-side). Hide it from the admin form to avoid confusion. */}
+            {/* El stock no se edita aquí: se maneja con producción y ajustes de inventario (quedan en el kardex). */}
           </Row>
 
           <Form.Group className="mb-3">
@@ -386,9 +432,9 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
           <h6 className="mb-3">Opciones de Entrega</h6>
           <Alert variant="info" className="mb-3">
             <small>
-              📍 <strong>Recojo en sucursal:</strong> Siempre disponible para todos los productos<br/>
-              🛵 <strong>Delivery local:</strong> Activar si se puede entregar a domicilio en la zona<br/>
-              📦 <strong>Envío nacional:</strong> Activar solo para productos que se pueden enviar a todo el país
+              <strong>Recojo en sucursal:</strong> Siempre disponible para todos los productos<br/>
+              <strong>Delivery local:</strong> Activar si se puede entregar a domicilio en la zona<br/>
+              <strong>Envío nacional:</strong> Activar solo para productos que se pueden enviar a todo el país
             </small>
           </Alert>
 
@@ -397,7 +443,7 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
               <Form.Check
                 type="checkbox"
                 name="permite_delivery"
-                label="🛵 Permite Delivery Local"
+                label="Permite Delivery Local"
                 checked={formData.permite_delivery}
                 onChange={handleInputChange}
               />
@@ -406,7 +452,7 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
               <Form.Check
                 type="checkbox"
                 name="permite_envio_nacional"
-                label="📦 Permite Envío Nacional"
+                label="Permite Envío Nacional"
                 checked={formData.permite_envio_nacional}
                 onChange={handleInputChange}
               />
@@ -443,6 +489,41 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
               </Col>
             </Row>
           )}
+
+          <Row className="mt-3">
+            <Col md={6}>
+              <Form.Group className="mb-3">
+                <Form.Label htmlFor="pedidos_hasta">Recibir pedidos hasta</Form.Label>
+                <Form.Control
+                  type="date"
+                  id="pedidos_hasta"
+                  name="pedidos_hasta"
+                  value={formData.pedidos_hasta}
+                  onChange={handleInputChange}
+                />
+                <Form.Text className="text-muted">
+                  Último día en que la web acepta pedidos. Vacío: sin fecha límite.
+                </Form.Text>
+              </Form.Group>
+            </Col>
+            <Col md={6}>
+              <Form.Group className="mb-3">
+                <Form.Label htmlFor="etiqueta_personalizacion">Pedir al cliente</Form.Label>
+                <Form.Control
+                  type="text"
+                  id="etiqueta_personalizacion"
+                  name="etiqueta_personalizacion"
+                  value={formData.etiqueta_personalizacion}
+                  onChange={handleInputChange}
+                  maxLength={60}
+                  placeholder="Ej: Nombre del difunto"
+                />
+                <Form.Text className="text-muted">
+                  El cliente debe escribir este dato al pedir. Vacío: no se pide nada.
+                </Form.Text>
+              </Form.Group>
+            </Col>
+          </Row>
         </Col>
       </Row>
 
@@ -501,7 +582,7 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
                       onClick={() => handleRemoveExtra(index)}
                       className="w-100"
                     >
-                      🗑️ Eliminar
+                      Eliminar
                     </Button>
                   </Col>
                 </Row>
@@ -513,7 +594,7 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
                 onClick={handleAddExtra}
                 className="mt-2"
               >
-                ➕ Agregar Extra
+                + Agregar Extra
               </Button>
             </>
           )}
@@ -552,10 +633,7 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
                       loading="lazy"
                       decoding="async"
                       style={{ width: '100%', height: '150px', objectFit: 'cover' }}
-                      onError={(e) => {
-                        e.target.onerror = null;
-                        e.target.src = 'https://via.placeholder.com/150?text=Error+al+cargar';
-                      }}
+                      onError={usarImagenRespaldo}
                     />
                     {index === 0 && (
                       <Badge 
@@ -588,13 +666,32 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
           {producto && producto.id && (
             <Button
               variant="outline-success"
-              onClick={() => {
-                setRecetaActual(producto.receta || null);
+              onClick={async () => {
+                // If producto.receta is not present, attempt to fetch it from the inventory/recetas endpoint
+                if (!producto.receta) {
+                  try {
+                    // dynamic import to avoid circular requires in some bundlers
+                    const { admin } = await import('../../services/api');
+                    const resp = await admin.getRecetas({ producto_id: producto.id, per_page: 1 });
+                    // resp may be a paginator { data: [...] } or an array
+                    const found = resp?.data?.[0] || (Array.isArray(resp) ? resp[0] : null);
+                    setRecetaActual(found || null);
+                  } catch (err) {
+                    // ignore — we'll open modal to create a new receta
+                    if (import.meta.env.DEV) console.debug('No se pudo cargar receta al abrir modal:', err?.message || err);
+                    setRecetaActual(null);
+                  }
+                } else {
+                  setRecetaActual(producto.receta);
+                }
                 setShowRecetaModal(true);
               }}
             >
               <i className="bi bi-book me-2"></i>
-              {producto.receta ? 'Editar Receta' : 'Crear Receta'}
+              {/* Mostrar 'Editar Receta' si ya tenemos receta cargada en estado (recetaActual)
+                  o si el objeto producto contiene la relación/clave `receta` o `receta_id`. Esto
+                  cubre casos donde la relación no fue eager-loaded pero existe en la BD. */}
+              {(recetaActual || hasReceta || (producto && (producto.receta || producto.receta_id))) ? 'Editar Receta' : 'Crear Receta'}
             </Button>
           )}
           
@@ -623,20 +720,24 @@ const ProductoForm = ({ producto, categorias, onGuardar, onCancelar }) => {
           <Modal.Title>Gestionar Receta</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <RecetaForm
-            productoId={producto?.id}
-            productoNombre={producto?.nombre || ''}
-            receta={recetaActual}
-            onGuardar={(result) => {
-              setShowRecetaModal(false);
-              toast.success('Receta guardada correctamente');
-              // Recargar producto para actualizar receta
-              if (onGuardar) {
-                onGuardar(result);
-              }
-            }}
-            onCancelar={() => setShowRecetaModal(false)}
-          />
+          {producto && producto.id ? (
+            <RecetaForm
+              productoId={producto.id}
+              productoNombre={producto.nombre || ''}
+              receta={recetaActual}
+              onGuardar={(result) => {
+                setShowRecetaModal(false);
+                toast.success('Receta guardada correctamente');
+                // Recargar producto para actualizar receta
+                if (onGuardar) {
+                  onGuardar(result);
+                }
+              }}
+              onCancelar={() => setShowRecetaModal(false)}
+            />
+          ) : (
+            <div className="text-center p-4">Cargando información del producto...</div>
+          )}
         </Modal.Body>
       </Modal>
     </Form>

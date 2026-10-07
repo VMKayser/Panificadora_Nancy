@@ -1,6 +1,9 @@
 <?php
 
 namespace App\Models;
+
+use App\Support\AssetUrl;
+use App\Support\Miniaturas;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -24,7 +27,7 @@ class ImagenProducto extends Model
         'es_imagen_principal' => 'boolean',
     ];
     
-    protected $appends = ['url_imagen_completa'];
+    protected $appends = ['url_imagen_completa', 'url_miniatura', 'url_mediana'];
     
     public function producto()
     {
@@ -42,25 +45,34 @@ class ImagenProducto extends Model
                 if (empty($this->url_imagen)) {
                     return null;
                 }
-                
-                // Si ya tiene el protocolo, devolverla tal cual
-                if (str_starts_with($this->url_imagen, 'http://') || str_starts_with($this->url_imagen, 'https://')) {
-                    return $this->url_imagen;
+
+                $url = $this->url_imagen;
+
+                // Si no es absoluta, asegurar el prefijo /storage
+                if (!str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
+                    if (!str_starts_with($url, '/')) {
+                        $url = '/storage/' . ltrim($url, '/');
+                    }
                 }
-                
-                // Si comienza con /storage/, agregar la URL base
-                if (str_starts_with($this->url_imagen, '/storage/')) {
-                    return config('app.url') . $this->url_imagen;
-                }
-                
-                // Si es solo el path del archivo (productos/archivo.jpg)
-                if (!str_starts_with($this->url_imagen, '/')) {
-                    return config('app.url') . '/storage/' . $this->url_imagen;
-                }
-                
-                // Por defecto, agregar la URL base
-                return config('app.url') . $this->url_imagen;
+
+                return AssetUrl::normalize($url);
             }
+        );
+    }
+
+    /** Versión de 480 px para tarjetas y listas; el original si todavía no existe. */
+    protected function urlMiniatura(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => Miniaturas::url($this->url_imagen_completa, Miniaturas::MINIATURA) ?? $this->url_imagen_completa
+        );
+    }
+
+    /** Versión de 960 px para la ficha del producto; el original si todavía no existe. */
+    protected function urlMediana(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => Miniaturas::url($this->url_imagen_completa, Miniaturas::MEDIANA) ?? $this->url_imagen_completa
         );
     }
 }

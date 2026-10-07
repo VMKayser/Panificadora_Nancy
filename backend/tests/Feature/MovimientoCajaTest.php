@@ -13,7 +13,7 @@ class MovimientoCajaTest extends TestCase
 
     public function test_admin_can_create_and_list_movimientos_caja()
     {
-        $admin = User::factory()->create();
+        $admin = $this->crearUsuarioConRol('admin');
         // give admin role if role system exists; tests will still pass without role check
 
         $this->actingAs($admin, 'sanctum');

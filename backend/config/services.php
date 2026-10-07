@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    // Hosts a los que el servidor puede enviar mensajes de WhatsApp de un proveedor
+    // distinto de Facebook (lista separada por comas). Vacío = solo graph.facebook.com.
+    'whatsapp' => [
+        'allowed_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_ALLOWED_HOSTS', ''))))),
+    ],
+
 ];

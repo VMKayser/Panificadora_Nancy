@@ -10,6 +10,12 @@ class TestPanaderoSeeder extends Seeder
 {
     public function run()
     {
+        // Usuarios de prueba con contraseñas conocidas: nunca en producción.
+        if (app()->environment('production')) {
+            $this->command?->warn(static::class . ' omitido: no se crean usuarios de prueba en producción.');
+            return;
+        }
+
         \App\Models\User::query()->updateOrInsert([
             'email' => 'panadero-test@mailinator.com'
         ], [

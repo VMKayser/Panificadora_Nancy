@@ -13,13 +13,17 @@ class PedidosClienteTest extends TestCase
     use RefreshDatabase;
     use InventorySetup;
 
-    public function test_cliente_crea_pedido_publico_y_valida_stock()
+    /**
+     * Regla de negocio: los pedidos web no se limitan por el stock registrado
+     * (se hornea a diario y por encargo) y no descuentan stock al crearse.
+     */
+    public function test_cliente_crea_pedido_publico_sin_limite_de_stock()
     {
     $producto = Producto::factory()->create(['precio_minorista' => 10]);
     $this->ensureInventory($producto->id, 1);
     $mp = \App\Models\MetodoPago::firstOrCreate(['codigo' => 'efectivo'], ['nombre' => 'Efectivo', 'esta_activo' => true, 'orden' => 1]);
 
-        // Intenta crear pedido con cantidad mayor al stock
+        // Pide más de lo que hay en stock: se acepta igual
         $payload = [
             'cliente_nombre' => 'Cliente Web',
             'cliente_apellido' => 'Web',
@@ -33,21 +37,14 @@ class PedidosClienteTest extends TestCase
         ];
 
         $this->postJson('/api/pedidos', $payload)
-            ->assertStatus(422)
-            ->assertJsonStructure(['message']);
-
-        // Ahora crear con cantidad permitida
-    $payload['productos'][0]['cantidad'] = 1;
-        $this->postJson('/api/pedidos', $payload)
             ->assertStatus(201)
             ->assertJsonFragment(['message' => 'Pedido creado exitosamente']);
 
         $this->assertDatabaseHas('pedidos', ['cliente_nombre' => 'Cliente Web']);
     // detalle_pedidos uses productos_id as the FK column
-    $this->assertDatabaseHas('detalle_pedidos', ['productos_id' => $producto->id, 'cantidad' => 1]);
+    $this->assertDatabaseHas('detalle_pedidos', ['productos_id' => $producto->id, 'cantidad' => 2]);
 
-    // For ecommerce flow inventory may be decremented by observer when estado changes to 'confirmado' or 'entregado'.
-    // Ensure there's at least a movimiento record or the inventory row exists (stock may still be 1 until confirmed).
-    $this->assertDatabaseHas('inventario_productos_finales', ['producto_id' => $producto->id]);
+        // El stock no se toca hasta que el pedido se entregue
+        $this->assertEqualsWithDelta(1.0, (float) InventarioProductoFinal::where('producto_id', $producto->id)->value('stock_actual'), 0.001);
     }
 }

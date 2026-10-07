@@ -1,138 +1,150 @@
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, Navigate, useLocation } from 'react-router-dom';
+import { Modal } from 'react-bootstrap';
+import { Check, CircleCheck, Download, MessageCircle } from 'lucide-react';
 import { useSEO } from '../hooks/useSEO';
-import { Container, Card, Button, ListGroup } from 'react-bootstrap';
+import api, { assetBase } from '../services/api';
+import { formatCurrency } from '../utils/number';
+import { enlaceWhatsapp, WHATSAPP_TIENDA } from '../utils/whatsapp';
+import { ENTREGA_TEXTO, leerUltimoPedido, mensajePedido } from '../utils/pedido';
+
+// Las imágenes del backend también se sirven bajo /api/storage del mismo
+// dominio; desde ahí "Guardar QR" descarga la imagen en vez de abrirla
+// (el atributo download no funciona con imágenes de otro dominio).
+const urlDescarga = (url) => {
+  const base = assetBase();
+  if (!url || !base.startsWith('/')) return url;
+  try {
+    const { pathname } = new URL(url, window.location.origin);
+    return pathname.startsWith('/storage/') ? `${base}${pathname}` : url;
+  } catch {
+    return url;
+  }
+};
 
 const PedidoConfirmado = () => {
   const location = useLocation();
-  const navigate = useNavigate();
-  const pedido = location.state?.pedido;
+  const [pedido] = useState(() => (location.state?.numero ? location.state : leerUltimoPedido()));
+  const [whatsapp, setWhatsapp] = useState(WHATSAPP_TIENDA);
+  const [qrGrande, setQrGrande] = useState(false);
+  const [enviado, setEnviado] = useState(false);
 
-  if (!pedido) {
-    navigate('/');
-    return null;
-  }
-
-  // SEO: no indexar página de confirmación de pedido
   useSEO({
-    title: 'Pedido Confirmado - Panificadora Nancy',
-    description: `Pedido ${pedido.numero_pedido} confirmado. Gracias por tu compra.`,
-    noindex: true
+    title: 'Pedido recibido - Panificadora Nancy',
+    description: 'Tu pedido fue registrado.',
+    noindex: true,
   });
 
+  useEffect(() => {
+    api.get('/configuraciones/public/whatsapp_empresa/valor')
+      .then((r) => { if (r.data?.valor) setWhatsapp(r.data.valor); })
+      .catch(() => {});
+  }, []);
+
+  // Sin pedido (ej. se abrió la dirección a mano) no hay nada que mostrar
+  if (!pedido?.numero) {
+    return <Navigate to="/" replace />;
+  }
+
+  const enlace = enlaceWhatsapp(whatsapp, mensajePedido(pedido));
+
   return (
-    <Container className="py-5">
-      <Card className="shadow-lg" style={{ maxWidth: '600px', margin: '0 auto' }}>
-        <Card.Body className="text-center p-5">
-          {/* Icono de éxito */}
-          <div style={{ fontSize: '80px', color: '#28a745' }}>✅</div>
-          
-          <h2 className="mb-3" style={{ color: '#8b6f47', fontWeight: 'bold' }}>
-            ¡Pedido Confirmado!
-          </h2>
-          
-          <p className="text-muted mb-4">
-            Tu pedido ha sido recibido exitosamente
-          </p>
+    <main className="pn-wrap pn-page pn-gracias">
+      <header className="pn-confirm">
+        <CircleCheck size={52} className="pn-confirm__icon" strokeWidth={1.75} aria-hidden="true" />
+        <h1 className="pn-page__title">¡Pedido recibido!</h1>
+        <p className="pn-page__sub">Tu número de pedido es <strong className="pn-confirm__numero">{pedido.numero}</strong></p>
+      </header>
 
-          {/* Detalles del pedido */}
-          <Card className="mb-4" style={{ backgroundColor: '#f8f9fa' }}>
-            <Card.Body>
-              <div className="mb-3">
-                <strong>Número de Pedido:</strong>
-                <div style={{ fontSize: '24px', color: '#8b6f47', fontWeight: 'bold' }}>
-                  {pedido.numero_pedido}
-                </div>
-              </div>
-              
-              <hr />
-              
-              <div className="text-start">
-                <p className="mb-2">
-                  <strong>Cliente:</strong> {pedido.cliente_nombre} {pedido.cliente_apellido}
-                </p>
-                <p className="mb-2">
-                  <strong>Email:</strong> {pedido.cliente_email}
-                </p>
-                <p className="mb-2">
-                  <strong>Teléfono:</strong> {pedido.cliente_telefono}
-                </p>
-                <p className="mb-2">
-                  <strong>Tipo de Entrega:</strong> {pedido.tipo_entrega === 'delivery' ? 'Envío a domicilio' : 'Retiro en tienda'}
-                </p>
-                {pedido.direccion_entrega && (
-                  <p className="mb-2">
-                    <strong>Dirección:</strong> {pedido.direccion_entrega}
-                  </p>
-                )}
-              </div>
+      <section className="pn-panel pn-pago" aria-labelledby="ultimo-paso">
+        <h2 className="pn-panel__title" id="ultimo-paso">Último paso: paga y avísanos</h2>
 
-              <hr />
-
-              <div className="d-flex justify-content-between align-items-center">
-                <strong>Total Pagado:</strong>
-                <h4 style={{ color: '#28a745', fontWeight: 'bold', margin: 0 }}>
-                  Bs. {parseFloat(pedido.total).toFixed(2)}
-                </h4>
-              </div>
-            </Card.Body>
-          </Card>
-
-          {/* Productos del pedido */}
-          {pedido.detalles && pedido.detalles.length > 0 && (
-            <Card className="mb-4">
-              <Card.Header style={{ backgroundColor: '#8b6f47', color: 'white' }}>
-                <strong>Productos Ordenados</strong>
-              </Card.Header>
-              <ListGroup variant="flush">
-                {pedido.detalles.map((detalle, index) => (
-                  <ListGroup.Item key={index}>
-                    <div className="d-flex justify-content-between">
-                      <span>{detalle.cantidad}x {detalle.nombre_producto}</span>
-                      <strong>Bs. {parseFloat(detalle.subtotal).toFixed(2)}</strong>
-                    </div>
-                  </ListGroup.Item>
-                ))}
-              </ListGroup>
-            </Card>
-          )}
-
-          {/* Información adicional */}
-          <div className="alert alert-info">
-            <strong>📧 Confirmación enviada</strong>
-            <p className="mb-0 mt-2" style={{ fontSize: '14px' }}>
-              Hemos enviado los detalles de tu pedido a <strong>{pedido.cliente_email}</strong>
-            </p>
-          </div>
-
-          {pedido.requiere_anticipacion && (
-            <div className="alert alert-warning">
-              <strong>⏰ Nota importante</strong>
-              <p className="mb-0 mt-2" style={{ fontSize: '14px' }}>
-                Tu pedido incluye productos que requieren tiempo de preparación. 
-                Nos pondremos en contacto contigo para confirmar la fecha de entrega.
-              </p>
+        <ol className="pn-pasos">
+          <li>
+            <span className="pn-step" aria-hidden="true">1</span>
+            <div>
+              <p className="pn-pasos__titulo">Paga <strong>Bs {formatCurrency(pedido.total)}</strong> con este QR</p>
+              {pedido.qr ? (
+                <>
+                  <button type="button" className="pn-qr" onClick={() => setQrGrande(true)} aria-label="Ver el QR en grande">
+                    <img src={pedido.qr} alt="Código QR para pagar" />
+                  </button>
+                  <div className="pn-qr__acciones">
+                    <a className="pn-btn pn-btn--ghost pn-btn--sm" href={urlDescarga(pedido.qr)} download={`QR-${pedido.numero}.jpg`} target="_blank" rel="noreferrer">
+                      <Download size={16} /> Guardar QR
+                    </a>
+                    <span className="pn-field__help">Guárdalo y ábrelo desde la app de tu banco.</span>
+                  </div>
+                </>
+              ) : (
+                <p className="pn-field__help">Te mandamos el QR por WhatsApp.</p>
+              )}
             </div>
-          )}
+          </li>
+          <li>
+            <span className="pn-step" aria-hidden="true">2</span>
+            <div>
+              <p className="pn-pasos__titulo">Mándanos el comprobante por WhatsApp</p>
+              <p className="pn-field__help">Se abre WhatsApp con tu pedido ya escrito: solo adjunta la captura del pago.</p>
+              <a
+                className="pn-btn pn-btn--wa pn-btn--lg pn-btn--block mt-2"
+                href={enlace}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setEnviado(true)}
+              >
+                <MessageCircle size={20} /> {enviado ? 'Abrir WhatsApp otra vez' : 'Enviar por WhatsApp'}
+              </a>
+              {enviado && (
+                <p className="pn-listo" role="status"><Check size={16} /> Listo. Te confirmamos el pedido por WhatsApp cuando revisemos el pago.</p>
+              )}
+            </div>
+          </li>
+        </ol>
+      </section>
 
-          {/* Botones */}
-          <div className="d-grid gap-2 mt-4">
-            <Button
-              size="lg"
-              onClick={() => navigate('/')}
-              style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}
-            >
-              Volver al Inicio
-            </Button>
-            <Button
-              variant="outline-secondary"
-              onClick={() => window.print()}
-            >
-              🖨️ Imprimir Recibo
-            </Button>
-          </div>
-        </Card.Body>
-      </Card>
-    </Container>
+      <section className="pn-panel" aria-labelledby="resumen-pedido">
+        <h2 className="pn-panel__title" id="resumen-pedido">Tu pedido</h2>
+        <ul className="pn-resumen">
+          {pedido.lineas.map((l, i) => (
+            <li key={i} className="pn-sum__row">
+              <span>
+                {l.cantidad} × {l.nombre}
+                {l.detalle && <small className="d-block text-muted">{l.detalle}</small>}
+              </span>
+              <span>Bs {formatCurrency(l.subtotal)}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="pn-sum">
+          <div className="pn-sum__row pn-sum__row--total"><span>Total</span><span>Bs {formatCurrency(pedido.total)}</span></div>
+        </div>
+        <dl className="pn-confirm__datos mt-3">
+          <dt>Entrega</dt>
+          <dd>
+            {ENTREGA_TEXTO[pedido.tipoEntrega]}
+            {pedido.direccion && <span className="pn-confirm__extra">{pedido.direccion}</span>}
+          </dd>
+          {pedido.cuando && (<><dt>Cuándo</dt><dd>{pedido.cuando}</dd></>)}
+          <dt>A nombre de</dt><dd>{pedido.nombre} · {pedido.celular}</dd>
+          {pedido.nota && (<><dt>Nota</dt><dd>{pedido.nota}</dd></>)}
+        </dl>
+      </section>
+
+      <div className="pn-gracias__fin">
+        <Link to="/productos" className="pn-btn pn-btn--ghost">Seguir comprando</Link>
+        {pedido.conCuenta && <Link to="/mis-pedidos" className="pn-btn pn-btn--ghost">Ver mis pedidos</Link>}
+      </div>
+
+      <Modal show={qrGrande} onHide={() => setQrGrande(false)} centered className="pn-qrmodal">
+        <Modal.Header closeButton closeLabel="Cerrar">
+          <Modal.Title as="h2">QR para pagar Bs {formatCurrency(pedido.total)}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <img src={pedido.qr} alt="Código QR para pagar" />
+        </Modal.Body>
+      </Modal>
+    </main>
   );
 };
 

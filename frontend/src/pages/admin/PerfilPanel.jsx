@@ -1,22 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Container, Row, Col, Card, Form, Button, Alert, Spinner, Badge, ListGroup, Tab, Tabs, Image } from 'react-bootstrap';
 import { useAuth } from '../../context/AuthContext';
 import { auth as authApi, admin } from '../../services/api';
 import { configuracionService } from '../../services/empleadosService';
 import { toast } from 'react-toastify';
+import { CalendarCheck, KeyRound, Phone, ShieldCheck, UserRound } from 'lucide-react';
 import { useSiteConfig } from '../../context/SiteConfigContext';
 
 export default function PerfilPanel() {
-  const { user, login } = useAuth();
+  const { user, setUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('perfil');
   const [showPasswordForm, setShowPasswordForm] = useState(false);
-  
+
   // Datos del perfil
   const [profileData, setProfileData] = useState({
     name: '',
     email: '',
     phone: '',
+    nit_ci: '',
   });
 
   // Configuración del sistema: logo y QR
@@ -36,78 +38,47 @@ export default function PerfilPanel() {
   const [roleStats, setRoleStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      setProfileData({
-        name: user.name || '',
-        email: user.email || '',
-        phone: user.phone || '',
-      });
-      
-      // Cargar estadísticas si el usuario es empleado
-      if (hasRole('vendedor') || hasRole('panadero')) {
-        loadRoleStats();
-      }
-      // Cargar configuraciones globales (logo y QR)
-      loadSystemConfigs();
-    }
-  }, [user]);
-
-  const loadSystemConfigs = async () => {
+  const loadSystemConfigs = useCallback(async () => {
     try {
-      const logoResp = await configuracionService.getValue('logo_url').catch(() => null);
+      const logoResp = await configuracionService.getPublicValue('logo_url').catch(() => null);
       if (logoResp && logoResp.data && typeof logoResp.data.valor !== 'undefined') {
         setLogoUrl(logoResp.data.valor || '');
       } else if (logoResp && logoResp.valor) {
         setLogoUrl(logoResp.valor || '');
       }
 
-      const qrResp = await configuracionService.getValue('qr_pago_url').catch(() => null);
+      const qrResp = await configuracionService.getPublicValue('qr_pago_url').catch(() => null);
       if (qrResp && qrResp.data && typeof qrResp.data.valor !== 'undefined') {
         setQrUrl(qrResp.data.valor || '');
       } else if (qrResp && qrResp.valor) {
         setQrUrl(qrResp.valor || '');
       }
-      // cargar whatsapp y plantilla de mensaje
-      const waResp = await configuracionService.getValue('whatsapp_empresa').catch(() => null);
+      // Número al que los clientes mandan el pedido y el comprobante
+      const waResp = await configuracionService.getPublicValue('whatsapp_empresa').catch(() => null);
       if (waResp && waResp.data && typeof waResp.data.valor !== 'undefined') {
         setWhatsappEmpresa(waResp.data.valor || '');
       } else if (waResp && waResp.valor) {
         setWhatsappEmpresa(waResp.valor || '');
       }
-
-      const tplResp = await configuracionService.getValue('qr_mensaje_plantilla').catch(() => null);
-      if (tplResp && tplResp.data && typeof tplResp.data.valor !== 'undefined') {
-        setQrMensajePlantilla(tplResp.data.valor || '');
-      } else if (tplResp && tplResp.valor) {
-        setQrMensajePlantilla(tplResp.valor || '');
-      }
     } catch (error) {
       console.warn('No se pudieron cargar configuraciones del sistema:', error);
     }
-  };
+  }, []);
 
-  // Estados para whatsapp y plantilla (admin)
-  const [whatsappEmpresa, setWhatsappEmpresa] = useState('');
-  const [qrMensajePlantilla, setQrMensajePlantilla] = useState('');
-  const { refresh: refreshSiteConfig } = useSiteConfig();
-
-  const hasRole = (roleName) => {
+  const hasRole = useCallback((roleName) => {
     return user?.roles?.some(role => role.name === roleName) || false;
-  };
+  }, [user]);
 
-  const loadRoleStats = async () => {
+  const loadRoleStats = useCallback(async () => {
     setLoadingStats(true);
     try {
       if (hasRole('vendedor')) {
-        const stats = await admin.getVendedoresEstadisticas();
         // Encontrar las estadísticas del vendedor actual
         const vendedor = await admin.getVendedores({ user_id: user.id });
         if (vendedor && vendedor.length > 0) {
           setRoleStats(vendedor[0]);
         }
       } else if (hasRole('panadero')) {
-        const stats = await admin.getPanaderosEstadisticas();
         const panaderos = await admin.getPanaderos();
         const panadero = panaderos.find(p => p.user_id === user.id);
         if (panadero) {
@@ -119,7 +90,29 @@ export default function PerfilPanel() {
     } finally {
       setLoadingStats(false);
     }
-  };
+  }, [user, hasRole]);
+
+  useEffect(() => {
+    if (user) {
+      setProfileData({
+        name: user.name || '',
+        email: user.email || '',
+        phone: user.phone || '',
+        nit_ci: user.nit_ci || user.cliente?.nit_ci || '',
+      });
+
+      // Cargar estadísticas si el usuario es empleado
+      if (hasRole('vendedor') || hasRole('panadero')) {
+        loadRoleStats();
+      }
+      // Cargar configuraciones globales (logo y QR)
+      loadSystemConfigs();
+    }
+  }, [user, hasRole, loadRoleStats, loadSystemConfigs]);
+
+  // Número de WhatsApp de la tienda (admin)
+  const [whatsappEmpresa, setWhatsappEmpresa] = useState('');
+  const { refresh: refreshSiteConfig } = useSiteConfig();
 
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
@@ -128,12 +121,12 @@ export default function PerfilPanel() {
     try {
       const response = await authApi.updateProfile(profileData);
       toast.success('Perfil actualizado exitosamente');
-      
+
       // Actualizar el usuario en el contexto y localStorage
       if (response.user) {
+        // Update localStorage and auth context without reloading the page
         localStorage.setItem('user', JSON.stringify(response.user));
-        // Re-login silencioso para actualizar el contexto
-        window.location.reload();
+        try { setUser(response.user); } catch (e) { /* fallback: ignore */ }
       }
     } catch (error) {
       console.error('Error al actualizar perfil:', error);
@@ -151,8 +144,10 @@ export default function PerfilPanel() {
       return;
     }
 
-    if (passwordData.new_password.length < 6) {
-      toast.error('La nueva contraseña debe tener al menos 6 caracteres');
+    // Misma política que el registro (el backend la vuelve a validar)
+    if (passwordData.new_password.length < 8 || !/[a-z]/.test(passwordData.new_password)
+      || !/[A-Z]/.test(passwordData.new_password) || !/\d/.test(passwordData.new_password)) {
+      toast.error('La nueva contraseña debe tener al menos 8 caracteres, con mayúscula, minúscula y número');
       return;
     }
 
@@ -220,11 +215,10 @@ export default function PerfilPanel() {
   }
 
   return (
-    <Container fluid className="py-4">
+    <Container fluid className="py-4 pn-perfil">
       <Row className="mb-4">
         <Col>
           <h3>
-            <i className="bi bi-person-circle me-2"></i>
             Mi Perfil y Configuración
           </h3>
           <p className="text-muted">Gestiona tu información personal y preferencias</p>
@@ -240,17 +234,17 @@ export default function PerfilPanel() {
                 {logoUrl ? (
                   <Image src={logoUrl} rounded fluid loading="lazy" decoding="async" style={{ maxHeight: 120 }} alt="Logo empresa" />
                 ) : (
-                  <i className="bi bi-person-circle" style={{ fontSize: '5rem', color: '#8b6f47' }}></i>
+                  <UserRound size={72} strokeWidth={1.5} color="#8b6f47" aria-hidden="true" />
                 )}
               </div>
               <h4>{user.name}</h4>
               <p className="text-muted">{user.email}</p>
-              
+
               <div className="mb-3">
                 {user.roles && user.roles.map(role => (
-                  <Badge 
-                    key={role.id} 
-                    bg={getRoleBadgeColor(role.name)} 
+                  <Badge
+                    key={role.id}
+                    bg={getRoleBadgeColor(role.name)}
                     className="me-2 mb-2"
                     style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}
                   >
@@ -261,17 +255,17 @@ export default function PerfilPanel() {
 
               {user.phone && (
                 <p className="mb-2">
-                  <i className="bi bi-telephone me-2"></i>
+                  <Phone size={16} className="me-2" aria-hidden="true" />
                   {user.phone}
                 </p>
               )}
 
               <div className="mt-3 pt-3 border-top">
                 <small className="text-muted">
-                  <i className="bi bi-calendar-check me-2"></i>
-                  Miembro desde {new Date(user.created_at || Date.now()).toLocaleDateString('es-ES', { 
-                    year: 'numeric', 
-                    month: 'long' 
+                  <CalendarCheck size={16} className="me-2" aria-hidden="true" />
+                  Miembro desde {new Date(user.created_at || Date.now()).toLocaleDateString('es-ES', {
+                    year: 'numeric',
+                    month: 'long'
                   })}
                 </small>
               </div>
@@ -283,7 +277,7 @@ export default function PerfilPanel() {
             <Card className="shadow-sm mt-3">
               <Card.Header>
                 <h6 className="mb-0">
-                  <i className="bi bi-bar-chart me-2"></i>
+                  
                   Mis Estadísticas
                 </h6>
               </Card.Header>
@@ -349,7 +343,7 @@ export default function PerfilPanel() {
         {/* Columna derecha - Formularios */}
         <Col md={8}>
           <Tabs activeKey={activeTab} onSelect={setActiveTab} className="mb-3">
-            <Tab eventKey="perfil" title={<><i className="bi bi-person me-2"></i>Información Personal</>}>
+            <Tab eventKey="perfil" title={<>Información Personal</>}>
               <Card className="shadow-sm">
                 <Card.Header>
                   <h5 className="mb-0">Actualizar Información Personal</h5>
@@ -390,10 +384,20 @@ export default function PerfilPanel() {
                       />
                     </Form.Group>
 
+                    <Form.Group className="mb-3">
+                      <Form.Label>NIT / CI (para facturación)</Form.Label>
+                      <Form.Control
+                        type="text"
+                        value={profileData.nit_ci || ''}
+                        onChange={(e) => setProfileData({ ...profileData, nit_ci: e.target.value })}
+                        placeholder="Ej: 1234567"
+                      />
+                    </Form.Group>
+
                     <div className="d-flex gap-2">
-                      <Button 
-                        type="submit" 
-                        variant="primary" 
+                      <Button
+                        type="submit"
+                        variant="primary"
                         disabled={loading}
                         style={{ backgroundColor: '#8b6f47', borderColor: '#8b6f47' }}
                       >
@@ -404,7 +408,7 @@ export default function PerfilPanel() {
                           </>
                         ) : (
                           <>
-                            <i className="bi bi-save me-2"></i>
+                            
                             Guardar Cambios
                           </>
                         )}
@@ -415,7 +419,7 @@ export default function PerfilPanel() {
               </Card>
             </Tab>
 
-            <Tab eventKey="seguridad" title={<><i className="bi bi-shield-lock me-2"></i>Seguridad</>}>
+            <Tab eventKey="seguridad" title={<>Seguridad</>}>
               <Card className="shadow-sm">
                 <Card.Header>
                   <h5 className="mb-0">Cambiar Contraseña</h5>
@@ -423,23 +427,23 @@ export default function PerfilPanel() {
                 <Card.Body>
                   {!showPasswordForm ? (
                     <div className="text-center py-4">
-                      <i className="bi bi-shield-lock" style={{ fontSize: '3rem', color: '#8b6f47' }}></i>
+                      <ShieldCheck size={44} strokeWidth={1.5} color="#8b6f47" aria-hidden="true" />
                       <p className="mt-3 mb-3">
                         Mantén tu cuenta segura actualizando tu contraseña regularmente.
                       </p>
-                      <Button 
+                      <Button
                         variant="outline-primary"
                         onClick={() => setShowPasswordForm(true)}
                       >
-                        <i className="bi bi-key me-2"></i>
+                        <KeyRound size={16} aria-hidden="true" />
                         Cambiar Contraseña
                       </Button>
                     </div>
                   ) : (
                     <Form onSubmit={handleChangePassword}>
                       <Alert variant="info" className="mb-3">
-                        <i className="bi bi-info-circle me-2"></i>
-                        La nueva contraseña debe tener al menos 6 caracteres.
+                        
+                        La nueva contraseña debe tener al menos 8 caracteres, con mayúscula, minúscula y número.
                       </Alert>
 
                       <Form.Group className="mb-3">
@@ -460,7 +464,7 @@ export default function PerfilPanel() {
                           value={passwordData.new_password}
                           onChange={(e) => setPasswordData({ ...passwordData, new_password: e.target.value })}
                           required
-                          minLength={6}
+                          minLength={8}
                           placeholder="Ingresa tu nueva contraseña"
                         />
                       </Form.Group>
@@ -472,15 +476,15 @@ export default function PerfilPanel() {
                           value={passwordData.new_password_confirmation}
                           onChange={(e) => setPasswordData({ ...passwordData, new_password_confirmation: e.target.value })}
                           required
-                          minLength={6}
+                          minLength={8}
                           placeholder="Confirma tu nueva contraseña"
                         />
                       </Form.Group>
 
                       <div className="d-flex gap-2">
-                        <Button 
-                          type="submit" 
-                          variant="primary" 
+                        <Button
+                          type="submit"
+                          variant="primary"
                           disabled={loading}
                         >
                           {loading ? (
@@ -490,13 +494,13 @@ export default function PerfilPanel() {
                             </>
                           ) : (
                             <>
-                              <i className="bi bi-check-circle me-2"></i>
+                              
                               Actualizar Contraseña
                             </>
                           )}
                         </Button>
-                        <Button 
-                          variant="outline-secondary" 
+                        <Button
+                          variant="outline-secondary"
                           onClick={() => {
                             setShowPasswordForm(false);
                             setPasswordData({
@@ -518,14 +522,14 @@ export default function PerfilPanel() {
 
             {/* Tab de preferencias - solo para admins */}
             {hasRole('admin') && (
-              <Tab eventKey="preferencias" title={<><i className="bi bi-gear me-2"></i>Preferencias del Sistema</>}>
+              <Tab eventKey="preferencias" title={<>Preferencias del Sistema</>}>
                 <Card className="shadow-sm">
                   <Card.Header>
                     <h5 className="mb-0">Configuración del Sistema</h5>
                   </Card.Header>
                   <Card.Body>
                     <Alert variant="info">
-                      <i className="bi bi-info-circle me-2"></i>
+                      
                       Como administrador, tienes acceso completo a todas las funcionalidades del sistema.
                     </Alert>
 
@@ -585,7 +589,7 @@ export default function PerfilPanel() {
                           <div className="text-muted">No hay logo configurado</div>
                         )}
                         <div>
-                          <Form.Control type="file" accept="image/*" onChange={async (e) => {
+                          <Form.Control type="file" accept="image/*" disabled={logoUploading} onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
                             setLogoUploading(true);
@@ -622,7 +626,7 @@ export default function PerfilPanel() {
                           <div className="text-muted">No hay QR configurado</div>
                         )}
                         <div>
-                          <Form.Control type="file" accept="image/*" onChange={async (e) => {
+                          <Form.Control type="file" accept="image/*" disabled={qrUploading} onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
                             setQrUploading(true);
@@ -675,7 +679,7 @@ export default function PerfilPanel() {
                         onChange={(e) => setWhatsappEmpresa(e.target.value)}
                         placeholder="Ej. +59176490687"
                       />
-                      <Form.Text className="text-muted">Número que se usará en el mensaje que se copia al cliente.</Form.Text>
+                      <Form.Text className="text-muted">Al terminar su pedido en la web, el cliente abre un chat con este número para mandar el pedido y el comprobante. Con o sin 591.</Form.Text>
                       <div className="mt-2">
                         <Button size="sm" variant="primary" onClick={async () => {
                           try {
@@ -686,19 +690,6 @@ export default function PerfilPanel() {
                       </div>
                     </Form.Group>
 
-                    <Form.Group className="mb-3">
-                      <Form.Label>Plantilla de mensaje para QR</Form.Label>
-                      <Form.Control as="textarea" rows={3} value={qrMensajePlantilla} onChange={(e) => setQrMensajePlantilla(e.target.value)} />
-                      <Form.Text className="text-muted">Puedes usar {`{empresa}`},{`{total}`},{`{whatsapp}`},{`{numero_pedido}`} como marcadores.</Form.Text>
-                      <div className="mt-2">
-                        <Button size="sm" variant="primary" onClick={async () => {
-                          try {
-                            await configuracionService.save({ clave: 'qr_mensaje_plantilla', valor: qrMensajePlantilla, tipo: 'texto' });
-                            toast.success('Plantilla guardada');
-                          } catch (err) { console.error(err); toast.error('Error al guardar plantilla'); }
-                        }}>Guardar plantilla</Button>
-                      </div>
-                    </Form.Group>
                   </Card.Body>
                 </Card>
               </Tab>

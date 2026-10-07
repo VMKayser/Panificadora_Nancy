@@ -12,18 +12,21 @@ class DetallePedido extends Model
         'pedidos_id',
         'productos_id',
         'nombre_producto',
+        'personalizacion',
         'precio_unitario',
         'cantidad',
         'subtotal',
         'requiere_anticipacion',
         'tiempo_anticipacion',
         'unidad_tiempo',
+        'es_extra',
     ];
 
     protected $casts = [
         'precio_unitario' => 'decimal:2',
         'subtotal' => 'decimal:2',
         'requiere_anticipacion' => 'boolean',
+        'es_extra' => 'boolean',
     ];
 
 

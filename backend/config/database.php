@@ -2,6 +2,16 @@
 
 use Illuminate\Support\Str;
 
+$configuredRedisClient = env('REDIS_CLIENT');
+
+if ($configuredRedisClient === null || $configuredRedisClient === '') {
+    $configuredRedisClient = extension_loaded('redis') ? 'phpredis' : 'predis';
+} elseif ($configuredRedisClient === 'phpredis' && ! extension_loaded('redis')) {
+    // Si el entorno exige phpredis pero la extensión no está disponible en el host (ej. Hostinger),
+    // caemos automáticamente a Predis para evitar "Class 'Redis' not found".
+    $configuredRedisClient = 'predis';
+}
+
 return [
 
     /*
@@ -144,7 +154,7 @@ return [
 
     'redis' => [
 
-        'client' => env('REDIS_CLIENT', 'phpredis'),
+    'client' => $configuredRedisClient,
 
         'options' => [
             'cluster' => env('REDIS_CLUSTER', 'redis'),

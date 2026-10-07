@@ -18,6 +18,7 @@ class Cliente extends Model
         'telefono',
         'direccion',
         'ci',
+        'nit_ci',
         'tipo_cliente',
         'total_pedidos',
         'total_gastado',

@@ -24,6 +24,10 @@ class SendPedidoEstadoCambiadoMail implements ShouldQueue
 
     public function handle()
     {
+        if (!$this->pedido->cliente_email) {
+            return;
+        }
+
         try {
             Mail::to($this->pedido->cliente_email)->send(new PedidoEstadoCambiado($this->pedido));
         } catch (\Exception $e) {

@@ -1,6 +1,8 @@
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useCallback } from 'react';
+import { Search, Pencil, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Spinner, Alert, Nav, Pagination } from 'react-bootstrap';
 import { admin, getCategorias } from '../services/api';
+import { formatCurrency } from '../utils/number';
 import { toast } from 'react-toastify';
 import ProductoForm from '../components/admin/ProductoForm';
 import useDebounce from '../hooks/useDebounce';
@@ -13,6 +15,7 @@ import InventarioPanel from './admin/InventarioPanel';
 import CategoriasPanel from './admin/CategoriasPanel';
 import MovimientosInventarioPanel from './admin/MovimientosInventarioPanel';
 import Dashboard from './admin/Dashboard';
+import { IMAGEN_PLACEHOLDER, usarImagenRespaldo } from '../utils/imagen';
 
 const AdminPanel = () => {
   const [productos, setProductos] = useState([]);
@@ -42,17 +45,7 @@ const AdminPanel = () => {
     setCurrentPage(1);
   }, [debouncedSearchTerm, filtroCategoria, filtroActivo, activeTab]);
 
-  useEffect(() => {
-    // Solo cargar productos cuando la pestaña activa sea 'productos'
-    if (activeTab === 'productos') {
-      cargarDatos();
-    } else {
-      // No cargar nada si no está en productos (optimización)
-      setLoading(false);
-    }
-  }, [debouncedSearchTerm, filtroCategoria, filtroActivo, activeTab, currentPage]);
-
-  const cargarDatos = async () => {
+  const cargarDatos = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -76,7 +69,7 @@ const AdminPanel = () => {
       // Actualizar información de paginación
       if (productosData.last_page) {
         setTotalPages(productosData.last_page);
-        console.log('[AdminPanel] Total pages:', productosData.last_page, 'Current:', currentPage);
+        if (import.meta.env.DEV) console.debug('[AdminPanel] Total pages:', productosData.last_page, 'Current:', currentPage);
       }
       
       setCategorias(categoriasData);
@@ -87,7 +80,17 @@ const AdminPanel = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearchTerm, filtroCategoria, filtroActivo, perPage, currentPage]);
+
+  useEffect(() => {
+    // Solo cargar productos cuando la pestaña activa sea 'productos'
+    if (activeTab === 'productos') {
+      cargarDatos();
+    } else {
+      // No cargar nada si no está en productos (optimización)
+      setLoading(false);
+    }
+  }, [activeTab, cargarDatos]);
 
   const handleNuevoProducto = () => {
     setProductoEditar(null);
@@ -135,14 +138,8 @@ const AdminPanel = () => {
     cargarDatos();
   };
 
-  if (loading && activeTab === 'productos') {
-    return (
-      <Container className="text-center py-5">
-        <Spinner animation="border" style={{ color: '#8b6f47' }} />
-        <p className="mt-3">Cargando productos...</p>
-      </Container>
-    );
-  }
+  // No desmontar toda la UI durante la carga para evitar perder foco en inputs (ej. buscador).
+  // Mostramos un spinner inline en el header cuando esté cargando.
 
   return (
     <Container fluid className="py-4">
@@ -150,7 +147,7 @@ const AdminPanel = () => {
       <Row className="mb-4">
         <Col>
           <h1 style={{ color: '#534031', fontWeight: 'bold' }}>
-            📦 Panel de Administración
+            Panel de Administración
           </h1>
           <p className="text-muted">
             {activeTab === 'productos' && 'Gestiona tu catálogo de productos'}
@@ -200,55 +197,61 @@ const AdminPanel = () => {
       {/* Pestañas de navegación */}
       <Nav variant="tabs" activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4">
         <Nav.Item>
-          <Nav.Link eventKey="dashboard">📊 Dashboard</Nav.Link>
+          <Nav.Link eventKey="dashboard">Dashboard</Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="productos">
-            📦 Productos
+            Productos
           </Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="pedidos">
-            📋 Pedidos
+            Pedidos
           </Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="clientes">
-            👥 Clientes
+            Clientes
           </Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="panaderos">
-            🧑‍🍳 Panaderos
+            Panaderos
           </Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="vendedores">
-            💼 Vendedores
+            Vendedores
           </Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="inventario">
-            📦 Inventario
+            Inventario
           </Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="categorias">
-            🏷️ Categorías
+            Categorías
           </Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="movimientos">
-            ↔️ Movimientos
+            Movimientos
           </Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="pagos">
-            💸 Pagos
+            Pagos
           </Nav.Link>
         </Nav.Item>
         {/* Perfil moved to global navbar */}
       </Nav>
+      {/* Inline loading indicator to avoid unmounting the whole UI (keeps search input focused) */}
+      {loading && activeTab === 'productos' && (
+        <div className="mb-3 text-center">
+          <Spinner animation="border" size="sm" style={{ color: '#8b6f47' }} /> <small className="text-muted ms-2">Cargando productos...</small>
+        </div>
+      )}
       {activeTab === 'pedidos' && <PedidosPanel />}
   {activeTab === 'dashboard' && <Dashboard />}
       {activeTab === 'clientes' && <ClientesPanel externalOpenCreate={openClienteSignal} />}
@@ -313,12 +316,13 @@ const AdminPanel = () => {
         <Card.Body>
           <Row>
             <Col md={4}>
-              <InputGroup>
-                <InputGroup.Text>🔍</InputGroup.Text>
+                <InputGroup>
+                <InputGroup.Text><Search size={16} /></InputGroup.Text>
                 <Form.Control
                   placeholder="Buscar producto..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                 />
               </InputGroup>
             </Col>
@@ -373,14 +377,11 @@ const AdminPanel = () => {
                         src={
                           producto.imagenes?.[0]?.url_imagen_completa
                             || producto.imagenes?.[0]?.url_imagen
-                            || 'https://via.placeholder.com/60?text=Sin+Imagen'
+                            || IMAGEN_PLACEHOLDER
                         }
                         alt={producto.nombre}
                         style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '4px' }}
-                        onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.src = 'https://via.placeholder.com/60?text=Error';
-                        }}
+                        onError={usarImagenRespaldo}
                       />
                     </td>
                     <td>
@@ -393,12 +394,12 @@ const AdminPanel = () => {
                     </td>
                     <td>{producto.categoria?.nombre || 'Sin categoría'}</td>
                     <td>
-                      <strong>Bs. {(parseFloat(String(producto.precio_minorista ?? producto.precio ?? 0)) || 0).toFixed(2)}</strong>
+                      <strong>Bs. {formatCurrency(producto.precio_minorista ?? producto.precio ?? 0)}</strong>
                       {producto.precio_mayorista && (
                         <>
                           <br />
                           <small className="text-muted">
-                            Mayor: Bs. {parseFloat(producto.precio_mayorista).toFixed(2)}
+                            Mayor: Bs. {formatCurrency(producto.precio_mayorista)}
                           </small>
                         </>
                       )}
@@ -426,7 +427,7 @@ const AdminPanel = () => {
                           onClick={() => handleEditarProducto(producto)}
                           title="Editar"
                         >
-                          ✏️
+                          <Pencil size={16} />
                         </Button>
                         <Button
                           size="sm"
@@ -434,7 +435,7 @@ const AdminPanel = () => {
                           onClick={() => handleToggleActive(producto.id, producto.nombre)}
                           title={producto.esta_activo ? 'Desactivar' : 'Activar'}
                         >
-                          {producto.esta_activo ? '👁️' : '🔒'}
+                          {producto.esta_activo ? <Eye size={16} /> : <EyeOff size={16} />}
                         </Button>
                         <Button
                           size="sm"
@@ -442,7 +443,7 @@ const AdminPanel = () => {
                           onClick={() => handleEliminarProducto(producto.id, producto.nombre)}
                           title="Eliminar"
                         >
-                          🗑️
+                          <Trash2 size={16} />
                         </Button>
                       </div>
                     </td>

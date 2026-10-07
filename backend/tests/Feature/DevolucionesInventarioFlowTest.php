@@ -27,7 +27,7 @@ class DevolucionesInventarioFlowTest extends TestCase
     InventarioProductoFinal::query()->updateOrInsert(['producto_id' => $producto->id], ['stock_actual' => 0, 'costo_promedio' => 0]);
 
         // Authenticate user and produce 10 units -> consumes 5 azucar, adds 10 product
-        $user = \App\Models\User::factory()->create();
+        $user = $this->crearUsuarioConRol('admin');
         $this->actingAs($user, 'sanctum');
 
         $produccionPayload = [

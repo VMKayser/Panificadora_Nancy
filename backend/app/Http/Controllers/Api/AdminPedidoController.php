@@ -6,21 +6,23 @@ use App\Http\Controllers\Controller;
 use App\Models\Pedido;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Mail;
 use App\Models\ConfiguracionSistema;
 use Illuminate\Support\Facades\Log;
-use App\Mail\PedidoConfirmado;
-use App\Mail\PedidoEstadoCambiado;
 use App\Jobs\SendPedidoConfirmadoMail;
 use App\Jobs\SendPedidoEstadoCambiadoMail;
+use App\Support\HoraNegocio;
+use App\Support\SafeTransaction;
+use Illuminate\Validation\Rule;
 use Carbon\Carbon;
 
 class AdminPedidoController extends Controller
 {
+    private const COLUMNAS_LISTADO = ['id','numero_pedido','user_id','cliente_id','cliente_nombre','cliente_apellido','cliente_email','cliente_telefono','nit_ci_factura','total','estado','estado_pago','created_at','fecha_entrega','hora_entrega','tipo_entrega','direccion_entrega'];
+
     public function index(Request $request)
     {
         $query = Pedido::with(['detalles.producto:id,nombre,precio_minorista', 'metodoPago:id,nombre'])
-            ->select(['id','numero_pedido','user_id','cliente_id','cliente_nombre','cliente_apellido','cliente_email','cliente_telefono','total','estado','created_at','fecha_entrega','hora_entrega','tipo_entrega','direccion_entrega']);
+            ->select(self::COLUMNAS_LISTADO);
 
         if ($request->has('estado')) {
             $query->where('estado', $request->estado);
@@ -61,7 +63,7 @@ class AdminPedidoController extends Controller
             foreach ($pedidoArray['detalles'] as $idx => $detalle) {
                 // Try to get costo_promedio from related producto->inventario if available
                 $costoPromedio = 0.0;
-                if (!empty($detalle['producto']) && !empty($detalle['producto']['inventario'])) {
+                if (empty($detalle['es_extra']) && !empty($detalle['producto']) && !empty($detalle['producto']['inventario'])) {
                     $costoPromedio = (float) ($detalle['producto']['inventario']['costo_promedio'] ?? 0);
                 }
 
@@ -102,6 +104,12 @@ class AdminPedidoController extends Controller
         // Ensure numero_pedido exists for the header
         $pedidoArray['numero_pedido'] = $pedidoArray['numero_pedido'] ?? $pedidoArray['id'] ?? null;
 
+        // Estados a los que se puede pasar desde el actual (para el selector del modal)
+        $pedidoArray['estados_permitidos'] = array_values(array_filter(
+            array_merge(Pedido::FLUJO_ESTADOS, ['cancelado']),
+            fn ($estado) => $pedido->puedeCambiarA($estado)
+        ));
+
         $pedidoArray['ganancia'] = round($totalGanancia, 2);
 
         return response()->json($pedidoArray);
@@ -109,77 +117,53 @@ class AdminPedidoController extends Controller
 
     public function updateEstado(Request $request, $id)
     {
-        $pedido = Pedido::findOrFail($id);
-        $estadoAnterior = $pedido->estado;
-        $estadoNuevo = $request->estado;
-        
-        $pedido->update(['estado' => $estadoNuevo]);
-        
-        // Cargar relaciones necesarias para los correos
-        $pedido->load(['detalles.producto', 'metodoPago', 'cliente']);
-        
-        // Enviar emails según el estado
-        try {
-            // Check if app-level emails are enabled (this does NOT affect Laravel's built-in account confirmation emails)
-            $emailsHabilitados = ConfiguracionSistema::get('emails_habilitados', false);
+        $request->validate([
+            'estado' => ['required', Rule::in(array_merge(Pedido::FLUJO_ESTADOS, ['cancelado']))],
+            'motivo_cancelacion' => 'nullable|string|max:1000',
+        ]);
 
-            if ($emailsHabilitados) {
-                // Email especial de confirmación (con PedidoConfirmado)
-                if ($estadoAnterior !== 'confirmado' && $estadoNuevo === 'confirmado') {
-                    // Dispatch mail sending to the queue to avoid blocking the request and reduce memory spikes
-                    dispatch(new SendPedidoConfirmadoMail($pedido));
-                    Log::info("Queued email de pedido confirmado para {$pedido->cliente_email} pedido #{$pedido->id}");
-                }
-                // Emails de cambio de estado para otros estados importantes
-                elseif (in_array($estadoNuevo, ['preparando', 'listo', 'en_camino', 'entregado', 'cancelado'])) {
-                    dispatch(new SendPedidoEstadoCambiadoMail($pedido));
-                    Log::info("Queued email de estado '{$estadoNuevo}' para {$pedido->cliente_email} pedido #{$pedido->id}");
-                }
-            } else {
-                // Emails disabled via configuracion_sistema; log and skip sending
-                Log::info("Emails deshabilitados por configuración. No se enviará el correo de estado '{$estadoNuevo}' para pedido #{$pedido->id}");
-            }
-        } catch (\Exception $e) {
-            // Loguear el error pero no fallar la actualización
-            Log::error("Error enviando correo de estado '{$estadoNuevo}': " . $e->getMessage());
-        }
-        
-        Cache::forget('pedidos.index.page.1.per.20');
-        Cache::forget('pedidos.index.page.1.per.50');
-        Cache::forget('pedidos.index.page.1.per.100');
-        
-        return response()->json(['success' => true, 'pedido' => $pedido]);
+        return $this->cambiarEstado(
+            Pedido::findOrFail($id),
+            $request->estado,
+            $request->motivo_cancelacion
+        );
     }
 
     public function updateFechaEntrega(Request $request, $id)
     {
-        $pedido = Pedido::findOrFail($id);
-        // Allow either fecha_entrega + hora_entrega or a single entrega_datetime (Y-m-d H:i[:s])
-        $fechaEntrega = $request->input('fecha_entrega');
-        $horaEntrega = $request->input('hora_entrega');
+        $request->validate([
+            'entrega_datetime' => 'nullable|string',
+            'fecha_entrega' => 'required_without:entrega_datetime|nullable|date_format:Y-m-d',
+            'hora_entrega' => 'nullable|date_format:H:i,H:i:s',
+        ]);
 
-        if ($request->filled('entrega_datetime')) {
+        $pedido = Pedido::findOrFail($id);
+
+        // fecha_entrega guarda fecha y hora juntas (hora local de Bolivia)
+        $texto = $request->filled('entrega_datetime')
+            ? $request->input('entrega_datetime')
+            : trim($request->input('fecha_entrega') . ' ' . ($request->input('hora_entrega') ?: '00:00'));
+
+        $entrega = null;
+        foreach (['Y-m-d H:i:s', 'Y-m-d H:i'] as $formato) {
             try {
-                // Try full seconds first, then fallback to minutes precision
-                try {
-                    $dt = Carbon::createFromFormat('Y-m-d H:i:s', $request->input('entrega_datetime'));
-                } catch (\Exception $e) {
-                    $dt = Carbon::createFromFormat('Y-m-d H:i', $request->input('entrega_datetime'));
-                }
-                $fechaEntrega = $dt->format('Y-m-d H:i:s');
-                $horaEntrega = $dt->format('H:i:s');
+                $entrega = Carbon::createFromFormat($formato, $texto);
+                break;
             } catch (\Exception $e) {
-                // Ignore parse errors; validation should handle wrong formats upstream
+                // probar el siguiente formato
             }
+        }
+        if (!$entrega) {
+            return response()->json(['message' => 'Fecha u hora de entrega inválida'], 422);
         }
 
         $pedido->update([
-            'fecha_entrega' => $fechaEntrega,
-            'hora_entrega' => $horaEntrega
+            'fecha_entrega' => $entrega->format('Y-m-d H:i:s'),
+            'hora_entrega' => $request->filled('hora_entrega') || $request->filled('entrega_datetime')
+                ? $entrega->format('H:i:s')
+                : null,
         ]);
-        Cache::forget('pedidos.index.page.1.per.20');
-        Cache::forget('pedidos.index.page.1.per.50');
-        Cache::forget('pedidos.index.page.1.per.100');
+        $this->olvidarCacheListado();
         return response()->json(['success' => true, 'pedido' => $pedido]);
     }
 
@@ -187,22 +171,42 @@ class AdminPedidoController extends Controller
     {
         $pedido = Pedido::findOrFail($id);
         $pedido->update(['notas_admin' => $request->notas_admin]);
-        Cache::forget('pedidos.index.page.1.per.20');
-        Cache::forget('pedidos.index.page.1.per.50');
-        Cache::forget('pedidos.index.page.1.per.100');
+        $this->olvidarCacheListado();
         return response()->json(['success' => true, 'pedido' => $pedido]);
     }
 
     public function cancel(Request $request, $id)
     {
-        $pedido = Pedido::findOrFail($id);
-        $pedido->update([
-            'estado' => 'cancelado',
-            'notas_cancelacion' => $request->motivo_cancelacion
+        return $this->cambiarEstado(
+            Pedido::findOrFail($id),
+            'cancelado',
+            $request->motivo_cancelacion
+        );
+    }
+
+    /**
+     * Marca el pago de un pedido (pagado / pendiente / rechazado), independiente
+     * de su estado. Los ingresos solo cuentan pedidos pagados.
+     */
+    public function updatePago(Request $request, $id)
+    {
+        $request->validate([
+            'estado_pago' => ['required', Rule::in(Pedido::ESTADOS_PAGO)],
+            'referencia_pago' => 'nullable|string|max:255',
         ]);
-        Cache::forget('pedidos.index.page.1.per.20');
-        Cache::forget('pedidos.index.page.1.per.50');
-        Cache::forget('pedidos.index.page.1.per.100');
+
+        $pedido = Pedido::findOrFail($id);
+        $datos = [
+            'estado_pago' => $request->estado_pago,
+            'fecha_pago' => $request->estado_pago === 'pagado' ? now() : null,
+        ];
+        if ($request->filled('referencia_pago')) {
+            $datos['referencia_pago'] = $request->referencia_pago;
+        }
+        $pedido->update($datos);
+
+        $this->olvidarCacheListado();
+        Cache::forget('inventario.dashboard');
         return response()->json(['success' => true, 'pedido' => $pedido]);
     }
 
@@ -240,15 +244,18 @@ class AdminPedidoController extends Controller
             $porEstado[$e] = (clone $query)->where('estado', $e)->count();
         }
 
-        // ingresos_totales: sum of total for all pedidos in range
-        $ingresosTotales = (clone $query)->sum('total');
+        // ingresos_totales: solo pedidos pagados y no cancelados
+        $pagados = (clone $query)->where('estado_pago', 'pagado')->where('estado', '!=', 'cancelado');
+        $ingresosTotales = (clone $pagados)->sum('total');
+        $pedidosPagados = (clone $pagados)->count();
 
-        $promedioPedido = $totalPedidos > 0 ? ((float) $ingresosTotales / $totalPedidos) : 0.0;
+        $promedioPedido = $pedidosPagados > 0 ? ((float) $ingresosTotales / $pedidosPagados) : 0.0;
 
         $stats = [
             'total_pedidos' => $totalPedidos,
             'ingresos_totales' => (float) $ingresosTotales,
             'promedio_pedido' => round($promedioPedido, 2),
+            'pedidos_pagados' => $pedidosPagados,
             'por_estado' => $porEstado,
             'pedidos_pendientes' => $pedidosPendientes,
             'pedidos_completados' => $pedidosCompletados,
@@ -261,8 +268,8 @@ class AdminPedidoController extends Controller
     {
         // Return limited set for today to avoid heavy payloads
         $pedidos = Pedido::with(['detalles.producto:id,nombre,precio_minorista', 'metodoPago:id,nombre'])
-            ->select(['id','numero_pedido','user_id','cliente_id','cliente_nombre','cliente_apellido','cliente_email','cliente_telefono','total','estado','created_at'])
-            ->whereDate('created_at', today())
+            ->select(['id','numero_pedido','user_id','cliente_id','cliente_nombre','cliente_apellido','cliente_email','cliente_telefono','nit_ci_factura','total','estado','estado_pago','created_at'])
+            ->whereBetween('created_at', HoraNegocio::rangoUtcDelDia())
             ->orderBy('created_at','desc')
             ->limit(200)
             ->get();
@@ -272,7 +279,7 @@ class AdminPedidoController extends Controller
     public function pendientes()
     {
         $pedidos = Pedido::with(['detalles.producto:id,nombre,precio_minorista', 'metodoPago:id,nombre'])
-            ->select(['id','numero_pedido','user_id','cliente_id','cliente_nombre','cliente_apellido','cliente_email','cliente_telefono','total','estado','created_at'])
+            ->select(['id','numero_pedido','user_id','cliente_id','cliente_nombre','cliente_apellido','cliente_email','cliente_telefono','nit_ci_factura','total','estado','estado_pago','created_at'])
             ->where('estado', 'pendiente')
             ->orderBy('created_at','desc')
             ->limit(200)
@@ -282,12 +289,80 @@ class AdminPedidoController extends Controller
 
     public function paraHoy()
     {
+        // fecha_entrega está en hora local de Bolivia
         $pedidos = Pedido::with(['detalles.producto:id,nombre,precio_minorista', 'metodoPago:id,nombre'])
-            ->select(['id','numero_pedido','user_id','cliente_id','cliente_nombre','cliente_apellido','cliente_email','cliente_telefono','total','estado','fecha_entrega','hora_entrega'])
-            ->whereDate('fecha_entrega', today())
+            ->select(['id','numero_pedido','user_id','cliente_id','cliente_nombre','cliente_apellido','cliente_email','cliente_telefono','nit_ci_factura','total','estado','estado_pago','fecha_entrega','hora_entrega'])
+            ->whereDate('fecha_entrega', HoraNegocio::hoy())
             ->orderBy('fecha_entrega','asc')
             ->limit(200)
             ->get();
         return response()->json($pedidos);
+    }
+
+    /**
+     * Aplica un cambio de estado respetando el flujo: solo hacia adelante
+     * (se pueden saltar pasos), cancelar si aún no se entregó, y 'entregado'
+     * y 'cancelado' son finales. El stock se descuenta/repone en PedidoObserver.
+     */
+    private function cambiarEstado(Pedido $pedido, string $estadoNuevo, ?string $motivoCancelacion = null)
+    {
+        $estadoAnterior = $pedido->estado;
+
+        if (!$pedido->puedeCambiarA($estadoNuevo)) {
+            $mensaje = in_array($estadoAnterior, Pedido::ESTADOS_FINALES, true)
+                ? "El pedido ya está {$estadoAnterior} y no se puede modificar su estado."
+                : "No se puede pasar de '{$estadoAnterior}' a '{$estadoNuevo}': los pedidos solo avanzan.";
+            return response()->json(['message' => $mensaje], 422);
+        }
+
+        $datos = ['estado' => $estadoNuevo];
+        if ($estadoNuevo === 'cancelado') {
+            $datos['notas_cancelacion'] = $motivoCancelacion;
+        }
+
+        SafeTransaction::run(fn () => $pedido->update($datos));
+
+        // Cargar relaciones necesarias para los correos
+        $pedido->load(['detalles.producto', 'metodoPago', 'cliente']);
+
+        // Enviar emails según el estado
+        try {
+            // Check if app-level emails are enabled (this does NOT affect Laravel's built-in account confirmation emails)
+            $emailsHabilitados = ConfiguracionSistema::get('emails_habilitados', false);
+
+            if (!$pedido->cliente_email) {
+                // Pedido web sin correo: el cliente se entera por WhatsApp
+                Log::info("Pedido #{$pedido->id} sin correo: no se envía aviso de estado '{$estadoNuevo}'");
+            } elseif ($emailsHabilitados) {
+                // Email especial de confirmación (con PedidoConfirmado)
+                if ($estadoNuevo === 'confirmado') {
+                    // Dispatch mail sending to the queue to avoid blocking the request and reduce memory spikes
+                    dispatch(new SendPedidoConfirmadoMail($pedido));
+                    Log::info("Queued email de pedido confirmado para {$pedido->cliente_email} pedido #{$pedido->id}");
+                }
+                // Emails de cambio de estado para otros estados importantes
+                elseif (in_array($estadoNuevo, ['en_preparacion', 'listo', 'entregado', 'cancelado'])) {
+                    dispatch(new SendPedidoEstadoCambiadoMail($pedido));
+                    Log::info("Queued email de estado '{$estadoNuevo}' para {$pedido->cliente_email} pedido #{$pedido->id}");
+                }
+            } else {
+                // Emails disabled via configuracion_sistema; log and skip sending
+                Log::info("Emails deshabilitados por configuración. No se enviará el correo de estado '{$estadoNuevo}' para pedido #{$pedido->id}");
+            }
+        } catch (\Exception $e) {
+            // Loguear el error pero no fallar la actualización
+            Log::error("Error enviando correo de estado '{$estadoNuevo}': " . $e->getMessage());
+        }
+
+        $this->olvidarCacheListado();
+
+        return response()->json(['success' => true, 'pedido' => $pedido]);
+    }
+
+    private function olvidarCacheListado(): void
+    {
+        Cache::forget('pedidos.index.page.1.per.20');
+        Cache::forget('pedidos.index.page.1.per.50');
+        Cache::forget('pedidos.index.page.1.per.100');
     }
 }

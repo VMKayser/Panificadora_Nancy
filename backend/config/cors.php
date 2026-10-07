@@ -22,11 +22,20 @@ return [
 
     // Orígenes permitidos (configurable vía CORS_ALLOWED_ORIGINS en .env)
     // Puede ser una lista separada por comas o '*' para permitir todos en desarrollo.
-    'allowed_origins' => function_exists('env') ? (function() {
-        $cfg = env('CORS_ALLOWED_ORIGINS', env('FRONTEND_URL', 'http://localhost:5174'));
-        if ($cfg === '*') return ['*'];
-        return array_map('trim', explode(',', $cfg));
-    })() : [env('FRONTEND_URL', 'http://localhost:5174')],
+    // Solo los dominios reales; los de desarrollo (Vite) únicamente fuera de producción.
+    // CORS_EXTRA_ORIGINS permite añadir orígenes separados por comas sin tocar el código.
+    'allowed_origins' => array_values(array_unique(array_filter(array_merge(
+        [
+            env('FRONTEND_URL', 'https://panificadoranancy.com'),
+            'https://panificadoranancy.com',
+            'https://www.panificadoranancy.com',
+        ],
+        env('APP_ENV', 'production') === 'production' ? [] : [
+            'http://localhost:5173',
+            'http://localhost:5174',
+        ],
+        array_map('trim', explode(',', (string) env('CORS_EXTRA_ORIGINS', '')))
+    )))),
 
     'allowed_origins_patterns' => [],
 

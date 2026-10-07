@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
@@ -7,6 +7,7 @@ import {
   DollarSign, Briefcase, Clock, TrendingUp, Package, Award, Power
 } from 'lucide-react';
 import { pananaderoService } from '../../services/empleadosService';
+import { formatCurrency } from '../../utils/number';
 import './PanaderoDetail.css';
 
 const PanaderoDetail = () => {
@@ -17,11 +18,7 @@ const PanaderoDetail = () => {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    cargarPanadero();
-  }, [id]);
-
-  const cargarPanadero = async () => {
+  const cargarPanadero = useCallback(async () => {
     try {
       setLoading(true);
       const response = await pananaderoService.getById(id);
@@ -36,7 +33,11 @@ const PanaderoDetail = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, navigate]);
+
+  useEffect(() => {
+    cargarPanadero();
+  }, [cargarPanadero]);
 
   const handleToggleActivo = async () => {
     try {
@@ -319,7 +320,7 @@ const PanaderoDetail = () => {
                   <DollarSign size={16} />
                   Salario Base
                 </label>
-                <p className="salario">Bs. {parseFloat(panadero.salario_base || 0).toFixed(2)}</p>
+                <p className="salario">Bs. {formatCurrency(panadero.salario_base || 0)}</p>
               </div>
             </div>
           </div>
@@ -343,7 +344,7 @@ const PanaderoDetail = () => {
                   <Package size={24} />
                 </div>
                 <div className="stat-content">
-                  <h3>{parseFloat(panadero.total_kilos_producidos || 0).toFixed(2)}</h3>
+                  <h3>{formatCurrency(panadero.total_kilos_producidos || 0)}</h3>
                   <p>Kilos Producidos</p>
                 </div>
               </div>
@@ -365,8 +366,8 @@ const PanaderoDetail = () => {
                 <div className="stat-content">
                   <h3>
                     {panadero.total_kilos_producidos && panadero.total_lotes_producidos
-                      ? (panadero.total_kilos_producidos / panadero.total_lotes_producidos).toFixed(2)
-                      : '0.00'}
+                      ? formatCurrency(panadero.total_kilos_producidos / panadero.total_lotes_producidos)
+                      : formatCurrency(0)}
                   </h3>
                   <p>Promedio kg/lote</p>
                 </div>

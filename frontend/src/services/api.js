@@ -5,7 +5,8 @@ import axios from 'axios';
 // Si no está, usar por defecto el backend en el host local (puerto 80): http://localhost/api
 // Esto evita que el dev-server de Vite (por ejemplo :5174) pase a apuntar a /api en su propio origen,
 // lo que provoca 'Failed to fetch' o 401 al llamar al backend real.
-let baseURL = import.meta?.env?.VITE_API_URL || 'http://localhost/api';
+const envApiUrl = import.meta.env.VITE_API_URL;
+let baseURL = envApiUrl || 'http://localhost/api';
 
 // If VITE_API_URL is a relative path (starts with '/'), let axios use the current origin
 // (important when code runs through a public tunnel — the browser origin will be the tunnel).
@@ -16,16 +17,15 @@ if (typeof baseURL === 'string' && baseURL.startsWith('/')) {
   baseURL = baseURL.replace(/\/$/, '');
 }
 
-// Log para depuración rápida en desarrollo
-if (typeof window !== 'undefined') {
-  // eslint-disable-next-line no-console
-  console.info('[api] baseURL =', baseURL, ' (window.location.origin =', window.location.origin + ')');
-}
+// Note: avoid logging sensitive runtime information here. Keep this file free of
+// direct console output to prevent accidental exposure in build logs or runtime.
 
 const api = axios.create({
   baseURL,
+  timeout: 15000, // 15 segundos para prevenir requests colgados
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
 });
 
@@ -43,17 +43,48 @@ api.interceptors.request.use(
   }
 );
 
-// Interceptor para manejar errores de autenticación
+// Interceptor para manejar errores de autenticación y timeouts
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Token expirado o inválido: limpiar storage. No hacemos redirect aquí
-      // para evitar recargas completas; la lógica de React (AuthContext) se encargará
-      // de dirigir al usuario a la página de login usando el router.
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('user');
-    }
+    // Importar toast dinámicamente solo cuando hay error (evita dependencia circular)
+    import('react-toastify').then(({ toast }) => {
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        // Timeout error
+        toast.error('La solicitud tardó demasiado tiempo. Por favor, verifica tu conexión e intenta nuevamente.', {
+          autoClose: 5000,
+        });
+      } else if (error.response?.status === 401) {
+        // Token expirado o inválido
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+        // No mostramos toast aquí para evitar spam en auth context
+      } else if (error.response?.status === 429) {
+        // Límite de solicitudes del servidor
+        toast.warning(error.response?.data?.message || 'Demasiadas solicitudes. Espera un momento e intenta de nuevo.', {
+          autoClose: 5000,
+        });
+      } else if (error.response?.status === 500) {
+        // Error de servidor
+        toast.error('Error del servidor. Por favor, intenta nuevamente más tarde.', {
+          autoClose: 5000,
+        });
+      } else if (error.response?.status === 404) {
+        // Recurso no encontrado - solo en dev
+        if (import.meta.env.DEV) {
+          toast.warning('Recurso no encontrado (404)', { autoClose: 3000 });
+        }
+      } else if (!error.response && error.message !== 'canceled') {
+        // Error de red (sin respuesta del servidor)
+        toast.error('Error de conexión. Verifica tu internet e intenta nuevamente.', {
+          autoClose: 5000,
+        });
+      }
+    }).catch(() => {
+      // Silently fail if toast import fails (shouldn't happen but defensive)
+      console.error('Error handling failed');
+    });
+
     return Promise.reject(error);
   }
 );
@@ -64,12 +95,15 @@ export const getProductos = async (params = {}) => {
     const response = await api.get('/productos', { params });
     return response.data;
   } catch (error) {
-    console.warn('API /productos failed, loading sample products fallback:', error.message);
-    // Fallback to a local sample JSON so the frontend can work offline during dev
-    const resp = await fetch('/sample-products.json');
-    if (!resp.ok) throw error; // rethrow original error if fallback unavailable
-    const data = await resp.json();
-    return data;
+    if (import.meta.env.DEV) {
+      console.warn('API /productos failed, loading sample products fallback:', error.message);
+      // Fallback to a local sample JSON so the frontend can work offline during dev
+      const resp = await fetch('/sample-products.json');
+      if (!resp.ok) throw error; // rethrow original error if fallback unavailable
+      const data = await resp.json();
+      return data;
+    }
+    throw error;
   }
 };
 
@@ -129,7 +163,7 @@ export const clearMetodosPagoCache = () => {
 // Helper para construir URLs a assets subidos en el backend (storage)
 export const assetBase = () => {
   // Si la VITE_API_URL apunta a /api, quitar el sufijo para obtener el host
-  const env = import.meta?.env?.VITE_API_URL || '';
+  const env = import.meta.env.VITE_API_URL || '';
   if (!env) return '';
   // Si termina en /api, removerlo
   if (env.endsWith('/api')) return env.replace(/\/api$/, '');
@@ -156,27 +190,22 @@ export const auth = {
 
   // Login
   login: async (credentials) => {
-    try {
-      const response = await api.post('/login', credentials);
-      const data = response.data;
+    const response = await api.post('/login', credentials);
+    const data = response.data;
 
-      // Backend may return access_token or token
-      const token = data.access_token || data.token || data.accessToken || null;
-      const user = data.user || data.usuario || data;
+    // Backend may return access_token or token
+    const token = data.access_token || data.token || data.accessToken || null;
+    const user = data.user || data.usuario || data;
 
-      if (token) {
-        localStorage.setItem('auth_token', token);
-      }
-
-      if (user) {
-        localStorage.setItem('user', JSON.stringify(user));
-      }
-
-      return data;
-    } catch (error) {
-      // Do not fallback to local sample users for login in production-ready frontend.
-      throw error;
+    if (token) {
+      localStorage.setItem('auth_token', token);
     }
+
+    if (user) {
+      localStorage.setItem('user', JSON.stringify(user));
+    }
+
+    return data;
   },
 
   // Logout
@@ -196,17 +225,25 @@ export const auth = {
 
   // Obtener usuario actual
   me: async () => {
-    try {
-      const response = await api.get('/me');
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.get('/me');
+    return response.data;
   },
 
   // Actualizar perfil
   updateProfile: async (profileData) => {
     const response = await api.put('/profile', profileData);
+    return response.data;
+  },
+
+  // Recuperación de contraseña: pide el enlace por correo
+  forgotPassword: async (email) => {
+    const response = await api.post('/forgot-password', { email });
+    return response.data;
+  },
+
+  // Recuperación de contraseña: fija la nueva clave con el token del enlace
+  resetPassword: async (datos) => {
+    const response = await api.post('/reset-password', datos);
     return response.data;
   },
 
@@ -247,7 +284,9 @@ export const admin = {
   // Obtener producto por ID
   getProducto: async (id) => {
     const response = await api.get(`/admin/productos/${id}`);
-    return response.data;
+    // Normalize response to return the product object whether the backend wraps it
+    // under { data: {...} } or returns it directly.
+    return response.data?.data || response.data;
   },
 
   // Crear producto
@@ -282,18 +321,14 @@ export const admin = {
 
   // Upload de imagen
   uploadImage: async (file) => {
-    console.log('API: Preparando upload de archivo:', file.name);
+    // Do not log file names or response data in production.
     const formData = new FormData();
     formData.append('image', file);
-    
-    console.log('API: Enviando request a /admin/productos/upload-image');
     const response = await api.post('/admin/productos/upload-image', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
-    
-    console.log('API: Respuesta recibida:', response.data);
     return response.data;
   },
 
@@ -306,7 +341,7 @@ export const admin = {
   // ============================================
   // ADMIN - PEDIDOS
   // ============================================
-  
+
   // Listar pedidos con filtros
   getPedidos: async (params = {}) => {
     const response = await api.get('/admin/pedidos', { params });
@@ -343,9 +378,9 @@ export const admin = {
     return response.data;
   },
 
-  // Crear pedido (venta mostrador)
+  // Crear pedido (venta mostrador): ruta protegida solo para admin y vendedor
   createPedido: async (pedidoData) => {
-    const response = await api.post('/pedidos', pedidoData);
+    const response = await api.post('/admin/ventas-mostrador', pedidoData);
     return response.data;
   },
 
@@ -358,6 +393,12 @@ export const admin = {
   // Actualizar fecha y hora de entrega
   updateFechaEntrega: async (id, data) => {
     const response = await api.put(`/admin/pedidos/${id}/fecha-entrega`, data);
+    return response.data;
+  },
+
+  // estado_pago: 'pagado' | 'pendiente' | 'rechazado'
+  updatePagoPedido: async (id, data) => {
+    const response = await api.put(`/admin/pedidos/${id}/pago`, data);
     return response.data;
   },
 
@@ -469,7 +510,7 @@ export const admin = {
     const response = await api.delete(`/admin/panaderos/${id}`);
     return response.data;
   },
-  
+
   // Toggle activo/inactivo panadero
   toggleActivoPanadero: async (id) => {
     const response = await api.post(`/admin/empleados/panaderos/${id}/toggle-activo`);
@@ -643,30 +684,31 @@ export const admin = {
   },
 
   // ============================================
-  // ADMIN - RECETAS
+  // RECETAS (parte del módulo de inventario)
+  // Rutas reales en backend: /inventario/recetas
   // ============================================
   getRecetas: async (params = {}) => {
-    const response = await api.get('/admin/recetas', { params });
+    const response = await api.get('/inventario/recetas', { params });
     return response.data;
   },
 
   getReceta: async (id) => {
-    const response = await api.get(`/admin/recetas/${id}`);
+    const response = await api.get(`/inventario/recetas/${id}`);
     return response.data;
   },
 
   crearReceta: async (data) => {
-    const response = await api.post('/admin/recetas', data);
+    const response = await api.post('/inventario/recetas', data);
     return response.data;
   },
 
   actualizarReceta: async (id, data) => {
-    const response = await api.put(`/admin/recetas/${id}`, data);
+    const response = await api.put(`/inventario/recetas/${id}`, data);
     return response.data;
   },
 
   eliminarReceta: async (id) => {
-    const response = await api.delete(`/admin/recetas/${id}`);
+    const response = await api.delete(`/inventario/recetas/${id}`);
     return response.data;
   },
 };

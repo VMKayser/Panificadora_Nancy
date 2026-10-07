@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
@@ -29,14 +29,7 @@ const PanaderoForm = () => {
     activo: true
   });
 
-  // Cargar datos en modo edición
-  useEffect(() => {
-    if (isEditMode) {
-      cargarPanadero();
-    }
-  }, [id]);
-
-  const cargarPanadero = async () => {
+  const cargarPanadero = useCallback(async () => {
     try {
       setLoadingData(true);
       const response = await pananaderoService.getById(id);
@@ -64,7 +57,14 @@ const PanaderoForm = () => {
     } finally {
       setLoadingData(false);
     }
-  };
+  }, [id, navigate]);
+
+  // Cargar datos en modo edición
+  useEffect(() => {
+    if (isEditMode) {
+      cargarPanadero();
+    }
+  }, [isEditMode, cargarPanadero]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;

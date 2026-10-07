@@ -28,3 +28,8 @@ backend/.env.production
 
 # OS
 Thumbs.db
+
+# Respaldos de BD y artefactos de build (nunca subir)
+deploy/backups/
+*.tar.gz
+frontend/live-index.html

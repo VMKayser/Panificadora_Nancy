@@ -1,11 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
-import { 
-  TrendingUp, DollarSign, ShoppingBag, Calendar,
-  Download, Filter, RefreshCw
-} from 'lucide-react';
+import { TrendingUp, DollarSign, ShoppingBag, Calendar, Download, RefreshCw } from 'lucide-react';
 import { vendedorService } from '../../services/empleadosService';
+import { formatCurrency } from '../../utils/number';
 import { useAuth } from '../../context/AuthContext';
 import './MisVentas.css';
 
@@ -27,17 +25,7 @@ const MisVentas = () => {
 
   const [vendedorId, setVendedorId] = useState(null);
 
-  useEffect(() => {
-    cargarVendedorInfo();
-  }, [user]);
-
-  useEffect(() => {
-    if (vendedorId) {
-      cargarVentas();
-    }
-  }, [vendedorId, filtros]);
-
-  const cargarVendedorInfo = async () => {
+  const cargarVendedorInfo = useCallback(async () => {
     try {
       // Obtener información del vendedor basado en el user_id
       const response = await vendedorService.getAll({ user_id: user?.id });
@@ -50,9 +38,13 @@ const MisVentas = () => {
       console.error('Error cargando información del vendedor:', error);
       toast.error('Error al cargar información del vendedor');
     }
-  };
+  }, [user]);
 
-  const cargarVentas = async () => {
+  useEffect(() => {
+    cargarVendedorInfo();
+  }, [cargarVendedorInfo]);
+
+  const cargarVentas = useCallback(async () => {
     try {
       setLoading(true);
       const response = await vendedorService.getReporteVentas(vendedorId, filtros);
@@ -72,7 +64,13 @@ const MisVentas = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [vendedorId, filtros]);
+
+  useEffect(() => {
+    if (vendedorId) {
+      cargarVentas();
+    }
+  }, [vendedorId, cargarVentas]);
 
   const handleFiltroChange = (campo, valor) => {
     setFiltros(prev => ({ ...prev, [campo]: valor }));
@@ -152,7 +150,7 @@ const MisVentas = () => {
             <DollarSign size={28} />
           </div>
           <div className="stat-content">
-            <h3>Bs. {parseFloat(estadisticas.total_ventas || 0).toFixed(2)}</h3>
+            <h3>Bs. {formatCurrency(estadisticas.total_ventas)}</h3>
             <p>Total en Ventas</p>
           </div>
         </motion.div>
@@ -167,7 +165,7 @@ const MisVentas = () => {
             <TrendingUp size={28} />
           </div>
           <div className="stat-content">
-            <h3>Bs. {parseFloat(estadisticas.total_comisiones || 0).toFixed(2)}</h3>
+            <h3>Bs. {formatCurrency(estadisticas.total_comisiones)}</h3>
             <p>Total en Comisiones</p>
           </div>
         </motion.div>
@@ -197,7 +195,7 @@ const MisVentas = () => {
             <DollarSign size={28} />
           </div>
           <div className="stat-content">
-            <h3>Bs. {parseFloat(estadisticas.ticket_promedio || 0).toFixed(2)}</h3>
+            <h3>Bs. {formatCurrency(estadisticas.ticket_promedio)}</h3>
             <p>Ticket Promedio</p>
           </div>
         </motion.div>
@@ -270,13 +268,13 @@ const MisVentas = () => {
                     <td>{formatFecha(venta.fecha_pedido)}</td>
                     <td>{venta.cliente?.name || 'Cliente General'}</td>
                     <td>
-                      <strong className="text-primary">
-                        Bs. {parseFloat(venta.total || 0).toFixed(2)}
+                        <strong className="text-primary">
+                        Bs. {formatCurrency(venta.total)}
                       </strong>
                     </td>
                     <td>
                       <strong className="text-success">
-                        Bs. {parseFloat(venta.comision || 0).toFixed(2)}
+                        Bs. {formatCurrency(venta.comision)}
                       </strong>
                     </td>
                     <td>

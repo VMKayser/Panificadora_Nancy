@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Container, Row, Col, Card, Table, Button, Modal, Form, Badge, Tabs, Tab, Alert, Spinner } from 'react-bootstrap';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
+import { formatCurrency } from '../../utils/number';
 
 export default function MovimientosInventarioPanel() {
   const [activeTab, setActiveTab] = useState('materias-primas');
@@ -24,7 +25,6 @@ export default function MovimientosInventarioPanel() {
   const [produccionExtras, setProduccionExtras] = useState([]); // extra ingredientes for single production
   const [produccionErrorDetails, setProduccionErrorDetails] = useState([]);
   const [produccionErrorMessage, setProduccionErrorMessage] = useState('');
-  const [movimientos, setMovimientos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [tipoMovimiento, setTipoMovimiento] = useState('entrada');
@@ -38,12 +38,10 @@ export default function MovimientosInventarioPanel() {
     observaciones: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Ref guard to prevent double-submit race conditions (state updates are async)
+  const submittingRef = useRef(false);
 
-  useEffect(() => {
-    cargarDatos();
-  }, [activeTab]);
-
-  const cargarDatos = async () => {
+  const cargarDatos = useCallback(async () => {
     setLoading(true);
     try {
       if (activeTab === 'materias-primas') {
@@ -53,22 +51,24 @@ export default function MovimientosInventarioPanel() {
         const data = await admin.getProductosFinales();
         setProductosFinales(Array.isArray(data) ? data : []);
       }
-      // Cargar panaderos para el select (si no están ya cargados)
-      if (panaderos.length === 0) {
-        try {
-          const p = await admin.getPanaderos({ activo: 1, per_page: 100 });
-          setPanaderos(Array.isArray(p) ? p : (p.data || p));
-        } catch (err) {
-          console.warn('No se pudieron cargar panaderos:', err.message || err);
-        }
-      }
     } catch (error) {
       console.error('Error cargando datos:', error);
       toast.error('Error al cargar datos');
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab]);
+
+  useEffect(() => {
+    cargarDatos();
+  }, [cargarDatos]);
+
+  // Panaderos para el select: basta cargarlos una vez
+  useEffect(() => {
+    admin.getPanaderos({ activo: 1, per_page: 100 })
+      .then(p => setPanaderos(Array.isArray(p) ? p : (p.data || p)))
+      .catch(err => console.warn('No se pudieron cargar panaderos:', err.message || err));
+  }, []);
 
   const handleOpenModal = (item, tipo) => {
     setSelectedItem(item);
@@ -115,18 +115,59 @@ export default function MovimientosInventarioPanel() {
 
     try {
       const productoId = selectedItem.producto_id || selectedItem.producto?.id;
-      const response = await admin.getProducto(productoId);
-      const producto = response.data || response;
-      
-      if (!producto.receta || !producto.receta.ingredientes || producto.receta.ingredientes.length === 0) {
+      // First try to use the product object if available
+      let producto = null;
+      try {
+        producto = await admin.getProducto(productoId);
+      } catch (err) {
+        // ignore — we'll try other fallbacks
+        producto = null;
+      }
+
+      // Heuristics: receta may be present as producto.receta, producto.recetas (array),
+      // or only referenced by producto.receta_id. Try all options.
+      let receta = null;
+
+      if (producto) {
+        if (producto.receta) {
+          receta = producto.receta;
+        } else if (Array.isArray(producto.recetas) && producto.recetas.length > 0) {
+          receta = producto.recetas[0];
+        } else if (producto.receta_id) {
+          try {
+            receta = await admin.getReceta(producto.receta_id);
+          } catch (err) {
+            if (import.meta.env.DEV) console.debug('getReceta by id failed:', err?.message || err);
+            receta = null;
+          }
+        }
+      }
+
+      // If still not found, fetch receta list by producto_id (common fallback)
+      if (!receta) {
+        try {
+          const recResp = await admin.getRecetas({ producto_id: productoId, per_page: 1 });
+          // recResp may be a paginator { data: [...] } or an array or single object
+          receta = recResp?.data?.[0] || (Array.isArray(recResp) ? recResp[0] : (recResp || null));
+        } catch (err) {
+          if (import.meta.env.DEV) console.debug('No se pudo obtener receta directamente:', err?.message || err);
+          receta = null;
+        }
+      }
+
+      // Normalize ingredientes: backend should return receta.ingredientes, but older or
+      // variant APIs might use other keys. Accept different shapes.
+      const ingredientesRaw = receta?.ingredientes || receta?.ingredientes_receta || receta?.ingredientesReceta || receta?.items || null;
+
+      if (!receta || !ingredientesRaw || (Array.isArray(ingredientesRaw) && ingredientesRaw.length === 0)) {
         toast.info('Este producto no tiene receta configurada');
         return;
       }
 
       // Calcular ingredientes basados en la cantidad
-      const ingredientesCalculados = producto.receta.ingredientes.map(ing => ({
-        materia_prima_id: ing.materia_prima_id,
-        cantidad: (parseFloat(ing.cantidad_necesaria) * cantidad).toFixed(2)
+      const ingredientesCalculados = (Array.isArray(ingredientesRaw) ? ingredientesRaw : []).map(ing => ({
+        materia_prima_id: ing.materia_prima_id || ing.materia_prima?.id || ing.materiaPrima_id,
+        cantidad: formatCurrency((parseFloat(ing.cantidad_necesaria ?? ing.cantidad ?? ing.cantidad_receta ?? 0) * cantidad))
       }));
 
       setProduccionExtras(ingredientesCalculados);
@@ -151,24 +192,40 @@ export default function MovimientosInventarioPanel() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Prevent double submit if an earlier submit is still being processed
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setIsSubmitting(true);
     
     try {
       if (activeTab === 'materias-primas') {
         if (tipoMovimiento === 'entrada') {
           // Registrar compra
-          await admin.registrarCompraMateriaPrima(selectedItem.id, {
+          // Generate an idempotency key per user action to avoid duplicates if the frontend accidentally
+          // submits the same form multiple times (or network retries). Use crypto.randomUUID when
+          // available, otherwise fallback to timestamp+random.
+          const generateIdempotencyKey = () => {
+            try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { /* sin crypto.randomUUID: usar el respaldo de abajo */ }
+            return `${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+          };
+
+          const compraPayload = {
             cantidad: parseFloat(formData.cantidad),
             costo_unitario: parseFloat(formData.costo_unitario),
             numero_factura: formData.numero_factura,
-            observaciones: formData.observaciones?.trim() || null
-          });
+            observaciones: formData.observaciones?.trim() || null,
+            idempotency_key: generateIdempotencyKey()
+          };
+          // Debug log to help diagnose duplicate/misrouted purchases
+          if (import.meta.env.DEV) console.debug('[Movimientos] registrarCompraMateriaPrima -> id:', selectedItem?.id, 'payload:', compraPayload, 'selectedItem:', selectedItem);
+          await admin.registrarCompraMateriaPrima(selectedItem.id, compraPayload);
           toast.success('Compra registrada exitosamente');
         } else {
-          // Ajuste de stock (salida o corrección)
-          const nuevoStock = selectedItem.stock_actual - parseFloat(formData.cantidad);
+          // Salida: se envía la cantidad y el servidor la resta del stock actual
+          // (si se calculara aquí el stock final, se pisarían movimientos simultáneos)
           await admin.ajustarStockMateriaPrima(selectedItem.id, {
-            nuevo_stock: nuevoStock,
+            cantidad: parseFloat(formData.cantidad),
+            direccion: 'salida',
             motivo: formData.motivo || 'merma',
             observaciones: formData.observaciones?.trim() || null
           });
@@ -176,10 +233,6 @@ export default function MovimientosInventarioPanel() {
         }
       } else {
         // Productos finales - ajuste simple o entrada que puede crear producción
-        const cambio = tipoMovimiento === 'entrada' 
-          ? parseFloat(formData.cantidad)
-          : -parseFloat(formData.cantidad);
-        const nuevoStock = (parseFloat(selectedItem.stock_actual || 0) || 0) + cambio;
 
         // Si es entrada y se solicita crear producción asignada, intentamos crear una producción
         if (tipoMovimiento === 'entrada' && (crearProduccionAsignada || multiMode)) {
@@ -211,7 +264,8 @@ export default function MovimientosInventarioPanel() {
                 fecha_produccion: line.fecha_produccion,
                 hora_inicio: line.hora_inicio || null,
                 hora_fin: line.hora_fin || null,
-                harina_real_usada: 0,
+                // Vacío = el backend usa la harina teórica de la receta
+                harina_real_usada: line.harina_real_usada || null,
                 cantidad_producida: line.cantidad_producida,
                 unidad: line.unidad || 'unidades',
                 panadero_id: line.panadero_id || produccionForm.panadero_id,
@@ -262,7 +316,7 @@ export default function MovimientosInventarioPanel() {
               fecha_produccion: produccionForm.fecha_produccion,
               hora_inicio: produccionForm.hora_inicio || null,
               hora_fin: produccionForm.hora_fin || null,
-              harina_real_usada: 0, // Calculado automáticamente por el backend
+              harina_real_usada: null, // Sin dato: el backend usa la harina teórica de la receta
               cantidad_producida: formData.cantidad, // Usar la cantidad del formulario principal
               unidad: produccionForm.unidad || 'unidades',
               panadero_id: produccionForm.panadero_id,
@@ -313,8 +367,11 @@ export default function MovimientosInventarioPanel() {
           toast.success('Producción creada y stock actualizado por backend');
         } else {
           // Ajuste normal (no creación de producción)
+          // El servidor aplica la cantidad sobre el stock actual; el motivo define
+          // el tipo (merma → salida_merma, degustación → salida_degustacion)
           const ajustePayload = {
-            nuevo_stock: nuevoStock,
+            cantidad: parseFloat(formData.cantidad),
+            direccion: tipoMovimiento === 'entrada' ? 'entrada' : 'salida',
             motivo: formData.motivo || 'ajuste_manual',
             observaciones: formData.observaciones?.trim() || null
           };
@@ -327,7 +384,7 @@ export default function MovimientosInventarioPanel() {
       cargarDatos();
     } catch (error) {
       console.error('Error registrando movimiento:', error);
-      console.error('Detalle del error:', error.response?.data);
+      if (import.meta.env.DEV) console.error('Detalle del error:', error.response?.data);
       const errorMsg = error.response?.data?.message || error.message || 'Error al registrar movimiento';
       const errors = error.response?.data?.errors;
       if (errors) {
@@ -338,6 +395,7 @@ export default function MovimientosInventarioPanel() {
       }
     }
     finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -403,7 +461,7 @@ export default function MovimientosInventarioPanel() {
 
             // Decide how to display stock: materias primas -> max 2 decimals; productos finales -> show full value
             const stockDisplay = activeTab === 'materias-primas'
-              ? stockActual.toFixed(2)
+              ? formatCurrency(stockActual)
               : (Number.isInteger(stockActual) ? stockActual.toString() : stockActual.toString());
 
             return (
@@ -417,7 +475,7 @@ export default function MovimientosInventarioPanel() {
                 </td>
                 <td>{unidad}</td>
                 {activeTab === 'materias-primas' && (
-                  <td>Bs. {parseFloat(item.costo_unitario || 0).toFixed(2)}</td>
+                  <td>Bs. {formatCurrency(item.costo_unitario || 0)}</td>
                 )}
                 <td>
                   <Badge bg={estadoBadge}>{estadoTexto}</Badge>
@@ -460,10 +518,10 @@ export default function MovimientosInventarioPanel() {
       </Row>
 
       <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4">
-        <Tab eventKey="materias-primas" title="📦 Materias Primas">
+        <Tab eventKey="materias-primas" title="Materias Primas">
           {renderTablaInventario()}
         </Tab>
-        <Tab eventKey="productos-finales" title="🍞 Productos Finales">
+        <Tab eventKey="productos-finales" title="Productos Finales">
           {renderTablaInventario()}
         </Tab>
       </Tabs>
@@ -472,7 +530,7 @@ export default function MovimientosInventarioPanel() {
       <Modal show={showModal} onHide={handleCloseModal} size="lg">
         <Modal.Header closeButton>
           <Modal.Title>
-            {tipoMovimiento === 'entrada' ? '➕ Registrar Entrada' : '➖ Registrar Salida'}
+            {tipoMovimiento === 'entrada' ? 'Registrar Entrada' : 'Registrar Salida'}
             {selectedItem && (
               <div className="text-muted fs-6 mt-1">
                 {activeTab === 'materias-primas'
@@ -484,11 +542,11 @@ export default function MovimientosInventarioPanel() {
         </Modal.Header>
         <Form onSubmit={handleSubmit}>
           <Modal.Body>
-            {selectedItem && (
+                {selectedItem && (
               <Alert variant="info" className="mb-3">
                 <strong>Stock actual:</strong> {
                   activeTab === 'materias-primas'
-                    ? Number(parseFloat(selectedItem.stock_actual || 0)).toFixed(2)
+                    ? formatCurrency(Number(parseFloat(selectedItem.stock_actual || 0)))
                     : (selectedItem.stock_actual ?? selectedItem.stock ?? '0')
                 } {
                   activeTab === 'materias-primas' 
@@ -634,7 +692,7 @@ export default function MovimientosInventarioPanel() {
                           disabled={!formData.cantidad}
                           title="Cargar ingredientes desde la receta existente"
                         >
-                          🪄 Usar receta
+                          Usar receta
                         </Button>
                       </div>
                       {produccionExtras.map((ing, idx) => {
@@ -770,6 +828,14 @@ export default function MovimientosInventarioPanel() {
                           value={produccionForm.fecha_produccion}
                           onChange={(e) => setProduccionForm({...produccionForm, fecha_produccion: e.target.value})}
                         />
+                      </Col>
+                      <Col md={3} className="mb-2">
+                        <Form.Label>Unidad</Form.Label>
+                        <Form.Select value={produccionForm.unidad} onChange={(e) => setProduccionForm({...produccionForm, unidad: e.target.value})}>
+                          <option value="unidades">Unidades</option>
+                          <option value="kg">Kg</option>
+                          <option value="docenas">Docenas</option>
+                        </Form.Select>
                       </Col>
                     </Row>
 

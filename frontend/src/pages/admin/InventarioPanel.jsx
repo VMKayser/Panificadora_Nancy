@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Table, Alert, Spinner, Badge, Card, Row, Col, Nav, Button, Modal, Form, Pagination } from 'react-bootstrap';
 import { admin } from '../../services/api';
+import { formatCurrency } from '../../utils/number';
 import { toast } from 'react-toastify';
 
 export default function InventarioPanel() {
@@ -32,28 +33,24 @@ export default function InventarioPanel() {
     setCurrentPage(1); // Reset page when switching tabs
   }, [activeTab]);
 
-  useEffect(() => {
-    cargarDatos(currentPage);
-  }, [currentPage, activeTab]);
-
-  const cargarDatos = async (page = 1) => {
+  const cargarDatos = useCallback(async (page = 1) => {
     try {
       setLoading(true);
       if (activeTab === 'materias') {
         const data = await admin.getMateriasPrimas({ per_page: perPage, page });
-        console.log('[InventarioPanel] Materias Primas data:', data);
+        if (import.meta.env.DEV) console.debug('[InventarioPanel] Materias Primas data:', data);
         setMaterias(data.data || data);
         if (data.last_page) {
           setTotalPages(data.last_page);
-          console.log('[InventarioPanel] Total pages:', data.last_page);
+          if (import.meta.env.DEV) console.debug('[InventarioPanel] Total pages:', data.last_page);
         }
       } else {
         const data = await admin.getProductosFinales({ per_page: perPage, page });
-        console.log('[InventarioPanel] Productos Finales data:', data);
+        if (import.meta.env.DEV) console.debug('[InventarioPanel] Productos Finales data:', data);
         setProductosFinal(data.data || data);
         if (data.last_page) {
           setTotalPages(data.last_page);
-          console.log('[InventarioPanel] Total pages:', data.last_page);
+          if (import.meta.env.DEV) console.debug('[InventarioPanel] Total pages:', data.last_page);
         }
       }
     } catch (error) {
@@ -61,7 +58,11 @@ export default function InventarioPanel() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, perPage]);
+
+  useEffect(() => {
+    cargarDatos(currentPage);
+  }, [currentPage, cargarDatos]);
 
   const handleOpenCreate = () => {
     setForm({
@@ -156,12 +157,12 @@ export default function InventarioPanel() {
       <Nav variant="pills" activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4">
         <Nav.Item>
           <Nav.Link eventKey="materias">
-            📦 Materias Primas
+            Materias Primas
           </Nav.Link>
         </Nav.Item>
         <Nav.Item>
           <Nav.Link eventKey="productos">
-            🍞 Productos Finales
+            Productos Finales
           </Nav.Link>
         </Nav.Item>
       </Nav>
@@ -195,8 +196,8 @@ export default function InventarioPanel() {
               <Card className="shadow-sm">
                 <Card.Body>
                   <h6 className="text-muted">Valor Total Inventario</h6>
-                  <h2 className="text-success">
-                    Bs. {materias.reduce((sum, m) => sum + (m.stock_actual * m.costo_unitario), 0).toFixed(2)}
+                    <h2 className="text-success">
+                    Bs. {formatCurrency(materias.reduce((sum, m) => sum + (m.stock_actual * m.costo_unitario), 0))}
                   </h2>
                 </Card.Body>
               </Card>
@@ -208,7 +209,7 @@ export default function InventarioPanel() {
           ) : (
             <>
               <div className="d-flex justify-content-between align-items-center mb-3">
-                <h4 className="mb-0">📦 Inventario de Materias Primas</h4>
+                <h4 className="mb-0">Inventario de Materias Primas</h4>
                 {totalPages > 1 && (
                   <small className="text-muted">
                     Página {currentPage} de {totalPages} | Mostrando {materias.length} items
@@ -240,7 +241,7 @@ export default function InventarioPanel() {
                       </td>
                       <td>{m.stock_minimo}</td>
                       <td>{m.unidad_medida}</td>
-                      <td>Bs. {parseFloat(m.costo_unitario).toFixed(2)}</td>
+                      <td>Bs. {formatCurrency(m.costo_unitario)}</td>
                       <td>
                         {m.activo ? (
                           <Badge bg="success">Activo</Badge>
@@ -324,8 +325,8 @@ export default function InventarioPanel() {
               <Card className="shadow-sm">
                 <Card.Body>
                   <h6 className="text-muted">Stock Total</h6>
-                  <h2 className="text-success">
-                    {productosFinal.reduce((sum, p) => sum + (p.stock_actual || 0), 0).toFixed(2)}
+                    <h2 className="text-success">
+                    {formatCurrency(productosFinal.reduce((sum, p) => sum + (p.stock_actual || 0), 0))}
                   </h2>
                 </Card.Body>
               </Card>
@@ -337,7 +338,7 @@ export default function InventarioPanel() {
           ) : (
             <>
               <div className="d-flex justify-content-between align-items-center mb-3">
-                <h4 className="mb-0">🍞 Inventario de Productos Finales</h4>
+                <h4 className="mb-0">Inventario de Productos Finales</h4>
                 {totalPages > 1 && (
                   <small className="text-muted">
                     Página {currentPage} de {totalPages} | Mostrando {productosFinal.length} items
@@ -364,11 +365,11 @@ export default function InventarioPanel() {
                       <td>{p.producto || 'N/A'}</td>
                       <td>
                         <Badge bg={p.stock_actual <= (p.stock_minimo || 0) ? 'danger' : 'success'}>
-                          {parseFloat(p.stock_actual || 0).toFixed(2)}
+                          {formatCurrency(p.stock_actual || 0)}
                         </Badge>
                       </td>
-                      <td>{parseFloat(p.stock_minimo || 0).toFixed(2)}</td>
-                      <td>Bs. {parseFloat(p.costo_promedio || 0).toFixed(2)}</td>
+                      <td>{formatCurrency(p.stock_minimo || 0)}</td>
+                      <td>Bs. {formatCurrency(p.costo_promedio || 0)}</td>
                       <td>{p.fecha_elaboracion || 'N/A'}</td>
                       <td>{p.fecha_vencimiento || 'N/A'}</td>
                       <td>

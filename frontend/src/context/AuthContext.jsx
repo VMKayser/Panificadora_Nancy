@@ -1,12 +1,11 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import PropTypes from 'prop-types';
 import { auth as authApi } from '../services/api';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(localStorage.getItem('auth_token'));
@@ -42,15 +41,21 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      console.log('[AuthContext] Intentando login con:', email);
+      if (import.meta.env.DEV) console.debug('[AuthContext] Intentando login con:', email);
       const data = await authApi.login({ email, password });
-      console.log('[AuthContext] Respuesta del login:', data);
+      if (import.meta.env.DEV) console.debug('[AuthContext] Respuesta del login:', data);
       
       const tokenValue = data.access_token || data.token || localStorage.getItem('auth_token');
       const userValue = data.user || JSON.parse(localStorage.getItem('user') || 'null');
 
-      console.log('[AuthContext] Token extraído:', tokenValue?.substring(0, 10) + '...');
-      console.log('[AuthContext] Usuario extraído:', userValue);
+      if (import.meta.env.DEV) {
+        try {
+          // Keep a minimal, non-sensitive dev message. Avoid printing tokens or full user objects.
+          console.debug('[AuthContext] Login successful (dev)');
+        } catch (e) {
+          // ignore
+        }
+      }
 
       if (tokenValue) {
         setToken(tokenValue);
@@ -161,6 +166,8 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    // allow components to update the user object without a full reload
+    setUser,
     hasRole,
     hasAnyRole,
     isAuthenticated: !!user,
@@ -178,6 +185,9 @@ AuthProvider.propTypes = {
   children: PropTypes.node.isRequired,
 };
 
+// El archivo exporta el Provider y su hook: separarlos no aporta y el
+// único efecto es que Fast Refresh recarga la página al editar este archivo.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {

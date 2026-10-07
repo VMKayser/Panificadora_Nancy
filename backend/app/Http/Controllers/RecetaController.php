@@ -9,9 +9,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use App\Support\SafeTransaction;
+use App\Support\MensajeError;
+use App\Http\Controllers\Concerns\ListadoSeguro;
 
 class RecetaController extends Controller
 {
+    use ListadoSeguro;
+
     /**
      * Listar todas las recetas
      */
@@ -39,7 +43,7 @@ class RecetaController extends Controller
         }
 
         $recetas = $query->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 15));
+            ->paginate($this->porPagina($request, 15));
 
         return response()->json($recetas);
     }
@@ -82,12 +86,31 @@ class RecetaController extends Controller
                     'version' => 1
                 ]);
 
-                // Agregar ingredientes
+                // Agregar ingredientes (aceptar variantes en el payload y saneamiento)
                 foreach ($request->ingredientes as $index => $ingrediente) {
+                    // Soporta varios nombres de campo que puedan venir desde el frontend
+                    $mpId = $ingrediente['materia_prima_id'] ?? ($ingrediente['materia_prima']['id'] ?? null);
+                    $cantidadRaw = $ingrediente['cantidad'] ?? ($ingrediente['cantidad_necesaria'] ?? ($ingrediente['cantidad_receta'] ?? 0));
+                    $unidad = $ingrediente['unidad'] ?? ($ingrediente['unidad_medida'] ?? null);
+
+                    // Normalizar y validar mínimos
+                    $cantidad = is_numeric($cantidadRaw) ? (float) $cantidadRaw : 0;
+                    if (!$mpId || $cantidad <= 0) {
+                        // Saltar ingredientes inválidos para no romper la creación; loguear para depuración
+                        
+                        continue;
+                    }
+
+                    // Si no se indicó unidad intentar obtenerla desde la materia prima
+                    if (!$unidad) {
+                        $mp = MateriaPrima::find($mpId);
+                        $unidad = $mp?->unidad_medida ?? 'kg';
+                    }
+
                     $receta->ingredientes()->create([
-                        'materia_prima_id' => $ingrediente['materia_prima_id'],
-                        'cantidad' => $ingrediente['cantidad'],
-                        'unidad' => $ingrediente['unidad'],
+                        'materia_prima_id' => $mpId,
+                        'cantidad' => round($cantidad, 6),
+                        'unidad' => $unidad,
                         'orden' => $ingrediente['orden'] ?? ($index + 1)
                     ]);
                 }
@@ -105,7 +128,7 @@ class RecetaController extends Controller
 
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al crear receta: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al crear receta')
             ], 500);
         }
     }
@@ -168,10 +191,24 @@ class RecetaController extends Controller
                     
                     // Agregar nuevos ingredientes
                     foreach ($request->ingredientes as $index => $ingrediente) {
+                        $mpId = $ingrediente['materia_prima_id'] ?? ($ingrediente['materia_prima']['id'] ?? null);
+                        $cantidadRaw = $ingrediente['cantidad'] ?? ($ingrediente['cantidad_necesaria'] ?? ($ingrediente['cantidad_receta'] ?? 0));
+                        $unidad = $ingrediente['unidad'] ?? ($ingrediente['unidad_medida'] ?? null);
+
+                        $cantidad = is_numeric($cantidadRaw) ? (float) $cantidadRaw : 0;
+                        if (!$mpId || $cantidad <= 0) {
+                            continue;
+                        }
+
+                        if (!$unidad) {
+                            $mp = MateriaPrima::find($mpId);
+                            $unidad = $mp?->unidad_medida ?? 'kg';
+                        }
+
                         $receta->ingredientes()->create([
-                            'materia_prima_id' => $ingrediente['materia_prima_id'],
-                            'cantidad' => $ingrediente['cantidad'],
-                            'unidad' => $ingrediente['unidad'],
+                            'materia_prima_id' => $mpId,
+                            'cantidad' => round($cantidad, 6),
+                            'unidad' => $unidad,
                             'orden' => $ingrediente['orden'] ?? ($index + 1)
                         ]);
                     }
@@ -193,7 +230,7 @@ class RecetaController extends Controller
 
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al actualizar receta: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al actualizar receta')
             ], 500);
         }
     }
@@ -299,7 +336,7 @@ class RecetaController extends Controller
 
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al recalcular costos: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al recalcular costos')
             ], 500);
         }
     }
@@ -359,7 +396,7 @@ class RecetaController extends Controller
 
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al duplicar receta: ' . $e->getMessage()
+                'message' => MensajeError::publico($e, 'Error al duplicar receta')
             ], 500);
         }
     }

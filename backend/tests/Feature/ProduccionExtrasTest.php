@@ -47,7 +47,7 @@ class ProduccionExtrasTest extends TestCase
         ];
 
     // Authenticate and call endpoint (inventory routes are under /api/inventario and require auth)
-    $user = User::factory()->create();
+    $user = $this->crearUsuarioConRol('panadero');
     $this->actingAs($user, 'sanctum');
 
     // Call endpoint

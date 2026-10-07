@@ -22,7 +22,7 @@ class PedidoFactory extends Factory
             'cliente_apellido' => $this->faker->lastName(),
             'cliente_email' => $this->faker->safeEmail(),
             'cliente_telefono' => $this->faker->numerify('7########'),
-            'tipo_entrega' => 'recojo_tienda',
+            'tipo_entrega' => 'recoger',
             'subtotal' => 0,
             'descuento' => 0,
             'total' => 0,

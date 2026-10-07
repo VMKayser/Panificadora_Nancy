@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Models;
+use App\Support\HoraNegocio;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Model;
@@ -27,6 +28,7 @@ class Producto extends Model
         'extras_disponibles',
         'precio_minorista',
         'precio_mayorista',
+        'precio_por_confirmar',
         'cantidad_minima_mayoreo',
         'es_de_temporada',
         'esta_activo',
@@ -35,12 +37,16 @@ class Producto extends Model
         'requiere_tiempo_anticipacion',
         'tiempo_anticipacion',
         'unidad_tiempo',
+        'pedidos_hasta',
+        'etiqueta_personalizacion',
         'limite_produccion',
     ];
 
     protected $casts = [
         'precio_minorista' => 'decimal:2',
         'precio_mayorista' => 'decimal:2',
+        'precio_por_confirmar' => 'boolean',
+        'pedidos_hasta' => 'date:Y-m-d',
         'es_de_temporada' => 'boolean',
         'esta_activo' => 'boolean',
         'permite_delivery' => 'boolean',
@@ -80,6 +86,13 @@ class Producto extends Model
     public function getStockAttribute()
     {
         return $this->inventario?->stock_actual ?? 0;
+    }
+
+    /** La web ya no acepta pedidos: pasó el último día (hora de Bolivia) de pedidos_hasta. */
+    public function pedidosCerrados(): bool
+    {
+        return $this->pedidos_hasta !== null
+            && $this->pedidos_hasta->toDateString() < HoraNegocio::hoy();
     }
 
 }

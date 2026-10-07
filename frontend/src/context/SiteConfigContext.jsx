@@ -1,11 +1,27 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import api from '../services/api';
 
-// Simple in-memory cache for site config (logo/qr). TTL is short because
-// admins may update images; keep 5 minutes by default.
-let _siteConfigCache = null;
-let _siteConfigAt = 0;
-const SITE_CONFIG_TTL = 1000 * 60 * 5; // 5 minutes
+// Logo y QR que el admin configura en su perfil. La última respuesta se guarda
+// en localStorage para pintar el logo correcto desde el primer momento en las
+// visitas siguientes; en la primera visita se usa la copia local del logo
+// oficial (public/images) mientras responde la API.
+const CLAVE_CACHE = 'pn_site_config';
+
+const leerCache = () => {
+  try {
+    return JSON.parse(localStorage.getItem(CLAVE_CACHE) || 'null') || {};
+  } catch {
+    return {};
+  }
+};
+
+const valorDe = (resp, campo = 'valor') => resp?.data?.[campo] || null;
+
+// Copia local del logo oficial para la primera visita (o si la API falla)
+const LOGO_LOCAL = {
+  chico: `${import.meta.env.BASE_URL}images/logo-128.webp`,
+  grande: `${import.meta.env.BASE_URL}images/logo-600.webp`,
+};
 
 const SiteConfigContext = createContext({
   logoUrl: null,
@@ -14,83 +30,69 @@ const SiteConfigContext = createContext({
 });
 
 export const SiteConfigProvider = ({ children }) => {
-  const [logoUrl, setLogoUrl] = useState(null);
-  const [qrUrl, setQrUrl] = useState(null);
+  const [config, setConfig] = useState(leerCache);
 
-  const defaultLogo = `${import.meta.env.BASE_URL}images/logo.jpg`;
-
-  // Keep a small cache-bust token so clients reload the logo when updated
-  const [cacheToken, setCacheToken] = useState(() => localStorage.getItem('site_config_version') || Date.now().toString());
-
-  const loadConfig = useCallback(async (forceRefresh = false) => {
+  // Los archivos subidos tienen nombre único (hash), así que un logo nuevo
+  // trae otra URL y no hace falta romper la caché del navegador.
+  const loadConfig = useCallback(async () => {
+    const [logoResp, qrResp] = await Promise.all([
+      api.get('/configuraciones/public/logo_url/valor').catch(() => null),
+      api.get('/configuraciones/public/qr_pago_url/valor').catch(() => null),
+    ]);
+    // Si la API no respondió, se queda con lo que había
+    if (!logoResp && !qrResp) return;
+    const nuevo = {
+      logoUrl: valorDe(logoResp),
+      logoChico: valorDe(logoResp, 'miniatura'),
+      logoGrande: valorDe(logoResp, 'mediana'),
+      qrUrl: valorDe(qrResp),
+    };
+    setConfig(nuevo);
     try {
-      // Use in-memory cache to avoid repeated fetches across components
-      const now = Date.now();
-      if (!forceRefresh && _siteConfigCache && now - _siteConfigAt < SITE_CONFIG_TTL) {
-        const { logoVal, qrVal } = _siteConfigCache;
-        setLogoUrl(logoVal ? `${logoVal}?v=${cacheToken}` : null);
-        setQrUrl(qrVal ? `${qrVal}?v=${cacheToken}` : null);
-        return;
-      }
-
-      // Public endpoint (no auth) that returns only whitelisted config keys
-      const logoResp = await api.get(`/configuraciones/public/logo_url/valor`).catch(() => null);
-      const logoVal = logoResp && logoResp.data && typeof logoResp.data.valor !== 'undefined' ? logoResp.data.valor : null;
-
-      const qrResp = await api.get(`/configuraciones/public/qr_pago_url/valor`).catch(() => null);
-      const qrVal = qrResp && qrResp.data && typeof qrResp.data.valor !== 'undefined' ? qrResp.data.valor : null;
-
-      // Save to in-memory cache
-      _siteConfigCache = { logoVal, qrVal };
-      _siteConfigAt = Date.now();
-
-      setLogoUrl(logoVal ? `${logoVal}?v=${cacheToken}` : null);
-      setQrUrl(qrVal ? `${qrVal}?v=${cacheToken}` : null);
-    } catch (err) {
-      console.error('Error loading site config', err);
-      setLogoUrl(null);
-      setQrUrl(null);
+      localStorage.setItem(CLAVE_CACHE, JSON.stringify(nuevo));
+    } catch {
+      // Sin localStorage solo se pierde la caché entre visitas
     }
-  }, [cacheToken]);
+  }, []);
 
   useEffect(() => {
     loadConfig();
-    // Listen to storage events from other tabs so logo updates propagate
+    // Si el admin cambia el logo en otra pestaña, recargar
     const handler = (e) => {
-      if (e.key === 'site_config_update') {
-        const newVersion = localStorage.getItem('site_config_version') || Date.now().toString();
-        setCacheToken(newVersion);
-      }
+      if (e.key === 'site_config_update') loadConfig();
     };
     window.addEventListener('storage', handler);
-
     return () => window.removeEventListener('storage', handler);
   }, [loadConfig]);
 
-  // Expose a refresh that forces a server reload and updates the local cache token
   const refresh = async () => {
-    const newVersion = Date.now().toString();
-    localStorage.setItem('site_config_version', newVersion);
-    // update cache token so URLs change (bust client caching)
-    setCacheToken(newVersion);
-    // force reload from server and update in-memory cache
-    await loadConfig(true);
-    // notify other tabs
+    await loadConfig();
     try {
-      localStorage.setItem('site_config_update', newVersion);
-      // keep the key stable for other tabs to pick up; do not remove it
-    } catch (e) {
-      // ignore
+      localStorage.setItem('site_config_update', Date.now().toString());
+    } catch {
+      // ignorar
     }
   };
 
   return (
-    <SiteConfigContext.Provider value={{ logoUrl: logoUrl || defaultLogo, qrUrl, refresh }}>
+    <SiteConfigContext.Provider
+      value={{
+        logoUrl: config.logoUrl || null,
+        // Cabecera y pie (48 px) y portada (290 px): la versión reducida si existe
+        logoChico: config.logoChico || config.logoUrl || LOGO_LOCAL.chico,
+        logoGrande: config.logoGrande || config.logoUrl || LOGO_LOCAL.grande,
+        qrUrl: config.qrUrl || null,
+        refresh,
+      }}
+    >
       {children}
     </SiteConfigContext.Provider>
   );
 };
 
+// El archivo exporta el Provider y su hook: separarlos no aporta y el
+// único efecto es que Fast Refresh recarga la página al editar este archivo.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useSiteConfig = () => {
   return useContext(SiteConfigContext);
 };

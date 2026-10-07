@@ -82,7 +82,8 @@ class Panadero extends Model
     {
         // Calcular kilos pagables basados exclusivamente en harina_real_usada
         // kilos_pagables por producción = (float)($p->harina_real_usada ?? 0)
-        $producciones = $this->producciones()->get();
+        // Las producciones canceladas (o sin procesar) no se pagan.
+        $producciones = $this->producciones()->where('estado', 'completado')->get();
 
         $total_harina_pagables = 0.0;
         foreach ($producciones as $p) {
@@ -109,7 +110,7 @@ class Panadero extends Model
         $this->total_kilos_producidos = $total_harina_pagables;
     // cache the value in-memory for accessor usage (do not persist into a non-existing column)
     $this->harina_pagables_cache = $total_harina_pagables;
-        $this->total_unidades_producidas = $this->producciones()->sum('cantidad_unidades');
+        $this->total_unidades_producidas = $producciones->sum('cantidad_unidades');
         $this->ultima_produccion = $producciones->sortByDesc('fecha_produccion')->first()?->fecha_produccion;
         $this->save();
     }

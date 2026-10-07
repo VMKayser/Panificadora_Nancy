@@ -16,8 +16,8 @@ class UserPasswordChangeTest extends TestCase
         $user = User::factory()->create(["password" => Hash::make('old-secret')]);
         $payload = [
             'current_password' => 'old-secret',
-            'new_password' => 'new-secret',
-            'new_password_confirmation' => 'new-secret',
+            'new_password' => 'New-secret1',
+            'new_password_confirmation' => 'New-secret1',
         ];
 
         // The profile endpoint in the app accepts password changes via PUT /api/profile
@@ -25,7 +25,7 @@ class UserPasswordChangeTest extends TestCase
             ->putJson('/api/profile', $payload)
             ->assertStatus(200);
 
-        $this->assertTrue(Hash::check('new-secret', $user->fresh()->password));
+        $this->assertTrue(Hash::check('New-secret1', $user->fresh()->password));
     }
 
     public function test_admin_can_reset_user_password()
@@ -39,9 +39,9 @@ class UserPasswordChangeTest extends TestCase
 
         // Admin update endpoint supports updating password via PUT
         $this->actingAs($admin, 'sanctum')
-            ->putJson('/api/admin/usuarios/'.$user->id, ['password' => 'reset-123'])
+            ->putJson('/api/admin/usuarios/'.$user->id, ['password' => 'Reset-1234'])
             ->assertStatus(200);
 
-        $this->assertTrue(Hash::check('reset-123', $user->fresh()->password));
+        $this->assertTrue(Hash::check('Reset-1234', $user->fresh()->password));
     }
 }

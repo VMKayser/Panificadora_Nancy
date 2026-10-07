@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ConfiguracionSistema;
+use App\Support\AssetUrl;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -57,11 +58,13 @@ class ConfiguracionController extends Controller
             ], 422);
         }
 
+        $valor = $this->normalizeConfigValor($request->clave, $request->valor);
+
         // Use query builder updateOrInsert to avoid firing model events / creating savepoints
         ConfiguracionSistema::query()->updateOrInsert(
             ['clave' => $request->clave],
             [
-                'valor' => $request->valor,
+                'valor' => $valor,
                 'tipo' => $request->tipo,
                 'descripcion' => $request->descripcion,
                 'grupo' => $request->grupo
@@ -91,10 +94,12 @@ class ConfiguracionController extends Controller
         }
 
         foreach ($configuraciones as $config) {
+            $valorNormalizado = $this->normalizeConfigValor($config['clave'], $config['valor'] ?? null);
+
             ConfiguracionSistema::updateOrCreate(
                 ['clave' => $config['clave']],
                 [
-                    'valor' => $config['valor'],
+                    'valor' => $valorNormalizado,
                     'tipo' => $config['tipo'] ?? 'texto',
                     'descripcion' => $config['descripcion'] ?? null,
                     'grupo' => $config['grupo'] ?? null
@@ -304,8 +309,23 @@ class ConfiguracionController extends Controller
 
         return response()->json([
             'clave' => $config->clave,
-            'valor' => $valor,
+            'valor' => $this->normalizeConfigValor($config->clave, $valor),
             'tipo' => $config->tipo
         ]);
+    }
+
+    private function normalizeConfigValor(string $clave, $valor)
+    {
+        if (!is_string($valor)) {
+            return $valor;
+        }
+
+        $keysToNormalize = ['logo_url', 'qr_pago_url'];
+
+        if (in_array($clave, $keysToNormalize, true)) {
+            return AssetUrl::normalize($valor);
+        }
+
+        return $valor;
     }
 }

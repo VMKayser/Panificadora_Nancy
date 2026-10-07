@@ -74,11 +74,14 @@ class MateriaPrima extends Model
             $stock_anterior = $this->stock_actual;
 
             // Usar lockForUpdate para evitar race conditions
-            $this->lockForUpdate()->decrement('stock_actual', $cantidad);
+            // IMPORTANTE: llamar lockForUpdate() sobre una query sin scoping
+            // puede afectar a múltiples filas. Usar newQuery()->whereKey() para
+            // asegurarnos de que solo actualizamos la fila actual.
+            $this->newQuery()->whereKey($this->getKey())->lockForUpdate()->decrement('stock_actual', $cantidad);
             $this->refresh();
 
             // Registrar movimiento
-            MovimientoMateriaPrima::create([
+            $mov = MovimientoMateriaPrima::create([
                 'materia_prima_id' => $this->id,
                 'tipo_movimiento' => $tipo_movimiento,
                 'cantidad' => $cantidad,
@@ -88,6 +91,8 @@ class MateriaPrima extends Model
                 'user_id' => $user_id,
                 'observaciones' => $observaciones,
             ]);
+
+            try { Log::info('MovimientoMateriaPrima creado', ['materia_prima_id' => $this->id, 'movimiento_id' => $mov->id, 'tipo' => $tipo_movimiento, 'cantidad' => $cantidad, 'stock_nuevo' => $this->stock_actual]); } catch (\Throwable $e) {}
 
             return $this;
         };
@@ -126,7 +131,8 @@ class MateriaPrima extends Model
             $resolvedUserId = $user_id ?? Auth::id();
             
             // Usar lockForUpdate para evitar race conditions
-            $this->lockForUpdate()->increment('stock_actual', $cantidad);
+            // Asegurarnos de apuntar solo a la fila actual con whereKey
+            $this->newQuery()->whereKey($this->getKey())->lockForUpdate()->increment('stock_actual', $cantidad);
             $this->refresh();
             
             // Actualizar costo promedio ponderado si viene costo
@@ -143,7 +149,7 @@ class MateriaPrima extends Model
             }
 
             // Registrar movimiento
-            MovimientoMateriaPrima::create([
+            $mov = MovimientoMateriaPrima::create([
                 'materia_prima_id' => $this->id,
                 'tipo_movimiento' => $tipo_movimiento,
                 'cantidad' => $cantidad,
@@ -154,6 +160,8 @@ class MateriaPrima extends Model
                 'numero_factura' => $numero_factura,
                 'observaciones' => $observaciones,
             ]);
+
+            try { Log::info('MovimientoMateriaPrima creado', ['materia_prima_id' => $this->id, 'movimiento_id' => $mov->id, 'tipo' => $tipo_movimiento, 'cantidad' => $cantidad, 'stock_nuevo' => $this->stock_actual]); } catch (\Throwable $e) {}
 
             return $this;
             try { Log::info('MateriaPrima::agregarStock - inside transaction end', ['mp_id' => $this->id]); } catch (\Throwable $e) {}

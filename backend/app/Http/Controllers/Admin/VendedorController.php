@@ -8,9 +8,12 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use App\Http\Controllers\Concerns\ListadoSeguro;
 
 class VendedorController extends Controller
 {
+    use ListadoSeguro;
+
     /**
      * Listar todos los vendedores
      */
@@ -38,12 +41,11 @@ class VendedorController extends Controller
         }
 
         // Ordenamiento
-        $sortBy = $request->get('sort_by', 'created_at');
-        $sortOrder = $request->get('sort_order', 'desc');
+        [$sortBy, $sortOrder] = $this->ordenSeguro($request, 'vendedores', 'created_at', 'desc');
         $query->orderBy($sortBy, $sortOrder);
 
         // Paginación
-        $perPage = $request->get('per_page', 15);
+        $perPage = $this->porPagina($request, 15, 100);
         $vendedores = $query->paginate($perPage);
 
         return response()->json($vendedores);

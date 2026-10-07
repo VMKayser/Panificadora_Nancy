@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import { useRef, useState } from 'react';
+import { CircleUser } from 'lucide-react';
 import { Overlay } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 
@@ -15,8 +16,8 @@ const UserDropdown = ({ user, onLogout }) => {
 
   return (
     <>
-      <a href="#" ref={toggleRef} onClick={handleToggle} className="nav-link mx-2" style={{ cursor: 'pointer' }}>
-        👤 {user.name}
+      <a href="#" ref={toggleRef} onClick={handleToggle} className="nav-link mx-2 d-flex align-items-center gap-2" style={{ cursor: 'pointer' }}>
+        <CircleUser size={18} /> {user.name}
       </a>
 
       <Overlay
@@ -33,10 +34,10 @@ const UserDropdown = ({ user, onLogout }) => {
             style={{ position: 'absolute', minWidth: 160 }}
             {...props}
           >
-            <Link to="/perfil" className="dropdown-item" onClick={handleHide}>✏️ Mi Perfil</Link>
-            <Link to="/mis-pedidos" className="dropdown-item" onClick={handleHide}>📦 Mis Pedidos</Link>
+            <Link to="/perfil" className="dropdown-item" onClick={handleHide}>Mi Perfil</Link>
+            <Link to="/mis-pedidos" className="dropdown-item" onClick={handleHide}>Mis Pedidos</Link>
             <div className="dropdown-divider"></div>
-            <button className="dropdown-item" onClick={() => { handleHide(); onLogout(); }}>🚪 Cerrar Sesión</button>
+            <button className="dropdown-item" onClick={() => { handleHide(); onLogout(); }}>Cerrar Sesión</button>
           </div>
         )}
       </Overlay>

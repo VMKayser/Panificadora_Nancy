@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Container, Row, Col, Card, Badge, Spinner, Alert, Tab, Tabs, ListGroup, Button, Modal } from 'react-bootstrap';
+import { Row, Col, Card, Badge, Spinner, Alert, ListGroup, Button, Modal } from 'react-bootstrap';
+import { Link } from 'react-router-dom';
 import { Package, Clock, CheckCircle, XCircle, Truck, Calendar, CreditCard, MapPin, FileText } from 'lucide-react';
 import { auth } from '../services/api';
+import { formatCurrency } from '../utils/number';
+import { usarImagenRespaldo } from '../utils/imagen';
 import { toast } from 'react-toastify';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -85,72 +88,43 @@ const MisPedidos = () => {
 
   if (loading) {
     return (
-      <Container className="text-center py-5">
+      <main className="pn-wrap pn-page text-center">
         <Spinner animation="border" style={{ color: '#8b6f47' }} />
         <p className="mt-3">Cargando tus pedidos...</p>
-      </Container>
+      </main>
     );
   }
 
   return (
-    <Container className="py-4">
-      {/* Header */}
-      <Row className="mb-4">
-        <Col>
-          <h1 style={{ color: '#534031', fontWeight: 'bold' }}>
-            📦 Mis Pedidos
-          </h1>
-          <p className="text-muted">
-            Consulta el estado y detalles de todos tus pedidos
-          </p>
-        </Col>
-      </Row>
+    <main className="pn-wrap pn-page">
+      <h1 className="pn-page__title">Mis Pedidos</h1>
+      <p className="pn-page__sub">Consulta el estado y los detalles de tus pedidos.</p>
 
-      {/* Filtros con Tabs */}
-      <Tabs
-        activeKey={filtroEstado}
-        onSelect={(k) => setFiltroEstado(k)}
-        className="mb-4"
-        style={{ borderBottom: '2px solid #8b6f47' }}
-      >
-        <Tab 
-          eventKey="todos" 
-          title={
-            <span>
-              📋 Todos <Badge bg="secondary" pill>{contadores.todos}</Badge>
-            </span>
-          }
-        />
-        <Tab 
-          eventKey="activos" 
-          title={
-            <span>
-              🔄 En Proceso <Badge bg="primary" pill>{contadores.activos}</Badge>
-            </span>
-          }
-        />
-        <Tab 
-          eventKey="completados" 
-          title={
-            <span>
-              ✅ Completados <Badge bg="success" pill>{contadores.completados}</Badge>
-            </span>
-          }
-        />
-      </Tabs>
+      <div className="pn-chips mb-3" role="group" aria-label="Filtrar pedidos">
+        {[
+          ['todos', 'Todos', contadores.todos],
+          ['activos', 'En Proceso', contadores.activos],
+          ['completados', 'Completados', contadores.completados],
+        ].map(([key, label, n]) => (
+          <button key={key} type="button" aria-pressed={filtroEstado === key} onClick={() => setFiltroEstado(key)}>
+            {label} <span className="opacity-75">({n})</span>
+          </button>
+        ))}
+      </div>
 
       {/* Lista de Pedidos */}
       {pedidosFiltrados.length === 0 ? (
-        <Alert variant="info" className="text-center">
-          <Package size={48} className="mb-3" />
-          <h5>No tienes pedidos {filtroEstado !== 'todos' && `${filtroEstado}`}</h5>
-          <p className="mb-0">Cuando realices un pedido, aparecerá aquí</p>
-        </Alert>
+        <div className="pn-empty">
+          <Package size={44} />
+          <h2>{pedidos.length === 0 ? 'Aún no tienes pedidos' : 'No hay pedidos en este filtro'}</h2>
+          <p>Cuando realices un pedido, aparecerá aquí con su estado.</p>
+          {pedidos.length === 0 && <Link to="/productos" className="pn-btn pn-btn--primary">Ver productos</Link>}
+        </div>
       ) : (
         <Row>
           {pedidosFiltrados.map((pedido) => (
-            <Col key={pedido.id} md={6} lg={4} className="mb-4">
-              <Card className="h-100 shadow-sm border-0" style={{ borderTop: '4px solid #8b6f47' }}>
+            <Col key={pedido.id} md={6} lg={4} className="mb-3">
+              <Card className="h-100 pn-panel p-0">
                 <Card.Body>
                   {/* Header del pedido */}
                   <div className="d-flex justify-content-between align-items-start mb-3">
@@ -186,6 +160,7 @@ const MisPedidos = () => {
                       <small className="text-capitalize">
                         {pedido.tipo_entrega === 'delivery' ? 'A Domicilio' : 
                          pedido.tipo_entrega === 'recoger' ? 'Recoger en Tienda' : 
+                         pedido.tipo_entrega === 'envio_nacional' ? 'Envío nacional' :
                          pedido.tipo_entrega}
                       </small>
                     </ListGroup.Item>
@@ -201,28 +176,14 @@ const MisPedidos = () => {
                        style={{ backgroundColor: '#f8f9fa' }}>
                     <span className="fw-bold" style={{ color: '#534031' }}>Total:</span>
                     <span className="fs-5 fw-bold" style={{ color: '#8b6f47' }}>
-                      Bs. {parseFloat(pedido.total).toFixed(2)}
+                      Bs. {formatCurrency(pedido.total)}
                     </span>
                   </div>
 
                   {/* Botón Ver Detalle */}
-                  <Button
-                    variant="outline-primary"
-                    size="sm"
-                    className="w-100"
-                    onClick={() => verDetalle(pedido)}
-                    style={{ borderColor: '#8b6f47', color: '#8b6f47' }}
-                    onMouseEnter={(e) => {
-                      e.target.style.backgroundColor = '#8b6f47';
-                      e.target.style.color = 'white';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.backgroundColor = 'transparent';
-                      e.target.style.color = '#8b6f47';
-                    }}
-                  >
+                  <button type="button" className="pn-btn pn-btn--ghost pn-btn--block" onClick={() => verDetalle(pedido)}>
                     Ver Detalle Completo
-                  </Button>
+                  </button>
                 </Card.Body>
               </Card>
             </Col>
@@ -236,10 +197,13 @@ const MisPedidos = () => {
         onHide={() => setShowDetalleModal(false)} 
         size="lg"
         centered
+        scrollable
+        fullscreen="sm-down"
+        className="pn-pmodal"
       >
-        <Modal.Header closeButton style={{ borderBottom: '2px solid #8b6f47' }}>
-          <Modal.Title style={{ color: '#534031' }}>
-            📦 Detalle del Pedido
+        <Modal.Header closeButton>
+          <Modal.Title>
+            Detalle del Pedido
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
@@ -248,7 +212,7 @@ const MisPedidos = () => {
               {/* Información General */}
               <Row className="mb-4">
                 <Col md={6}>
-                  <h6 style={{ color: '#534031' }}>📋 Información del Pedido</h6>
+                  <h6 style={{ color: '#534031' }}>Información del Pedido</h6>
                   <p className="mb-1"><strong>Número:</strong> {selectedPedido.numero_pedido}</p>
                   <p className="mb-1"><strong>Fecha:</strong> {formatFecha(selectedPedido.created_at)}</p>
                   <p className="mb-1"><strong>Estado:</strong> {getEstadoBadge(selectedPedido.estado)}</p>
@@ -257,7 +221,7 @@ const MisPedidos = () => {
                   )}
                 </Col>
                 <Col md={6}>
-                  <h6 style={{ color: '#534031' }}>👤 Información de Contacto</h6>
+                  <h6 style={{ color: '#534031' }}>Información de Contacto</h6>
                   <p className="mb-1"><strong>Nombre:</strong> {selectedPedido.cliente_nombre} {selectedPedido.cliente_apellido}</p>
                   <p className="mb-1"><strong>Email:</strong> {selectedPedido.cliente_email}</p>
                   <p className="mb-1"><strong>Teléfono:</strong> {selectedPedido.cliente_telefono}</p>
@@ -285,27 +249,30 @@ const MisPedidos = () => {
               {/* Productos */}
               <Row className="mb-4">
                 <Col>
-                  <h6 style={{ color: '#534031' }}>🍞 Productos</h6>
+                  <h6 style={{ color: '#534031' }}>Productos</h6>
                   <ListGroup>
                     {selectedPedido.detalles?.map((detalle, idx) => (
                       <ListGroup.Item key={idx} className="d-flex align-items-center gap-3">
                         {detalle.producto?.imagenes?.[0]?.url_imagen_completa && (
                           <img
                             src={detalle.producto.imagenes[0].url_imagen_completa}
-                            alt={detalle.nombre_producto}
+                            alt=""
+                            onError={usarImagenRespaldo}
                             style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px' }}
                           />
                         )}
                         <div className="flex-grow-1">
                           <strong>{detalle.nombre_producto}</strong>
-                          <br />
-                          <small className="text-muted">
-                            Cantidad: {detalle.cantidad} × Bs. {parseFloat(detalle.precio_unitario).toFixed(2)}
+                          {detalle.personalizacion && (
+                            <small className="d-block text-muted">{detalle.personalizacion}</small>
+                          )}
+                          <small className="d-block text-muted">
+                            Cantidad: {detalle.cantidad} × Bs. {formatCurrency(detalle.precio_unitario)}
                           </small>
                         </div>
                         <div className="text-end">
                           <strong style={{ color: '#8b6f47' }}>
-                            Bs. {parseFloat(detalle.subtotal).toFixed(2)}
+                            Bs. {formatCurrency(detalle.subtotal)}
                           </strong>
                         </div>
                       </ListGroup.Item>
@@ -321,19 +288,19 @@ const MisPedidos = () => {
                     <Card.Body>
                       <div className="d-flex justify-content-between mb-2">
                         <span>Subtotal:</span>
-                        <span>Bs. {parseFloat(selectedPedido.subtotal).toFixed(2)}</span>
+                        <span>Bs. {formatCurrency(selectedPedido.subtotal)}</span>
                       </div>
                       {selectedPedido.descuento_bs > 0 && (
                         <div className="d-flex justify-content-between mb-2 text-success">
                           <span>Descuento:</span>
-                          <span>- Bs. {parseFloat(selectedPedido.descuento_bs).toFixed(2)}</span>
+                          <span>- Bs. {formatCurrency(selectedPedido.descuento_bs)}</span>
                         </div>
                       )}
                       <hr />
                       <div className="d-flex justify-content-between">
                         <strong style={{ fontSize: '1.2rem', color: '#534031' }}>Total:</strong>
                         <strong style={{ fontSize: '1.2rem', color: '#8b6f47' }}>
-                          Bs. {parseFloat(selectedPedido.total).toFixed(2)}
+                          Bs. {formatCurrency(selectedPedido.total)}
                         </strong>
                       </div>
                       <div className="mt-2 text-center">
@@ -367,7 +334,7 @@ const MisPedidos = () => {
           </Button>
         </Modal.Footer>
       </Modal>
-    </Container>
+    </main>
   );
 };
 

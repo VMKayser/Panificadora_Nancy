@@ -4,7 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\ConfiguracionSistema;
-use Illuminate\Http\Request;
+use App\Support\AssetUrl;
+use App\Support\Miniaturas;
 
 class ConfiguracionPublicController extends Controller
 {
@@ -18,6 +19,7 @@ class ConfiguracionPublicController extends Controller
             'logo_url',
             'qr_pago_url',
             'whatsapp_empresa',
+            'qr_mensaje_plantilla',
             'nombre_empresa'
         ];
 
@@ -28,7 +30,13 @@ class ConfiguracionPublicController extends Controller
         $config = ConfiguracionSistema::where('clave', $clave)->first();
 
         if (!$config) {
-            return response()->json(['message' => 'Configuración no encontrada'], 404);
+            return response()->json([
+                'clave' => $clave,
+                'valor' => null,
+                'tipo' => 'string',
+                'existe' => false,
+                'message' => 'Configuración no encontrada',
+            ], 200);
         }
 
         $valor = $config->valor;
@@ -45,10 +53,36 @@ class ConfiguracionPublicController extends Controller
                 break;
         }
 
-        return response()->json([
+        $valor = $this->normalizeIfAsset($config->clave, $valor);
+
+        $respuesta = [
             'clave' => $config->clave,
             'valor' => $valor,
-            'tipo' => $config->tipo
-        ]);
+            'tipo' => $config->tipo,
+            'existe' => true,
+        ];
+
+        // El logo se muestra chico en la cabecera: se ofrece su versión reducida
+        if ($config->clave === 'logo_url' && is_string($valor)) {
+            $respuesta['miniatura'] = Miniaturas::url($valor, Miniaturas::MINIATURA);
+            $respuesta['mediana'] = Miniaturas::url($valor, Miniaturas::MEDIANA);
+        }
+
+        return response()->json($respuesta);
+    }
+
+    private function normalizeIfAsset(string $clave, $valor)
+    {
+        if (!is_string($valor)) {
+            return $valor;
+        }
+
+        $keys = ['logo_url', 'qr_pago_url'];
+
+        if (in_array($clave, $keys, true)) {
+            return AssetUrl::normalize($valor);
+        }
+
+        return $valor;
     }
 }

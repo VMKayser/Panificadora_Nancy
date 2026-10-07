@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { Search, Users } from 'lucide-react';
 import useDebounce from '../../hooks/useDebounce';
 import { admin } from '../../services/api';
 import { toast } from 'react-toastify';
@@ -45,7 +46,6 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
     if (typeof externalOpenCreate === 'number' && externalOpenCreate > 0) {
       abrirCrear('usuario');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalOpenCreate]);
 
   const cargarUsuarios = async () => {
@@ -364,7 +364,7 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
           <Row>
             <Col md={4}>
               <InputGroup>
-                <InputGroup.Text>🔍</InputGroup.Text>
+                <InputGroup.Text><Search size={16} /></InputGroup.Text>
                 <Form.Control
                   placeholder="Buscar por nombre o email..."
                   value={searchTerm}
@@ -402,7 +402,7 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
             </div>
           ) : usuarios.length === 0 ? (
             <div className="text-center py-5 text-muted">
-              <h4>👥</h4>
+              <Users size={40} className="mb-2" />
               <p>No hay usuarios registrados</p>
             </div>
           ) : (
@@ -425,7 +425,7 @@ export default function ClientesPanel({ externalOpenCreate = 0 }) {
                       <strong>{u.name}</strong>
                     </td>
                     <td>
-                      <small className="text-muted">📧 {u.email}</small>
+                      <small className="text-muted">{u.email}</small>
                     </td>
                     <td>
                       <Badge bg={getRoleBadgeColor(u.role)}>{u.role}</Badge>

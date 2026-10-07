@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
@@ -33,18 +33,13 @@ const UsersList = () => {
 
   const debouncedBuscar = useDebounce(filtros.buscar, 350);
 
-  useEffect(() => {
-    // Use debounced search value to avoid calling API on every keystroke
-    cargarUsuarios(debouncedBuscar);
-    cargarEstadisticas();
-  }, [filtros.role, debouncedBuscar, paginacion.paginaActual]);
-
-  const cargarUsuarios = async (buscarOverride) => {
+  // Usa la búsqueda ya debounced: así no se pide al servidor en cada tecla
+  const cargarUsuarios = useCallback(async () => {
     try {
       setLoading(true);
       const params = {
         page: paginacion.paginaActual,
-        buscar: typeof buscarOverride !== 'undefined' ? buscarOverride : filtros.buscar,
+        buscar: debouncedBuscar,
         role: filtros.role
       };
 
@@ -64,9 +59,9 @@ const UsersList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedBuscar, filtros.role, paginacion.paginaActual]);
 
-  const cargarEstadisticas = async () => {
+  const cargarEstadisticas = useCallback(async () => {
     try {
       const response = await userService.getEstadisticas();
       if (response.success) {
@@ -75,7 +70,13 @@ const UsersList = () => {
     } catch (error) {
       console.error('Error cargando estadísticas:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Use debounced search value to avoid calling API on every keystroke
+    cargarUsuarios();
+    cargarEstadisticas();
+  }, [cargarUsuarios, cargarEstadisticas]);
 
   const handleCambiarRol = async (userId, nuevoRol) => {
     try {

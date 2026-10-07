@@ -1,0 +1,36 @@
+RewriteEngine On
+RewriteBase /
+
+# Allow API requests to pass through to the Laravel backend symlinked at /api
+RewriteRule ^api/ - [L]
+
+# Serve existing files/folders directly (assets, icons, etc.)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Fallback to the SPA entry point for all other routes (e.g. /register)
+RewriteRule . /index.html [L]
+
+# index.html siempre se revalida: después de un despliegue nadie se queda con
+# una versión que apunta a archivos de assets/ que ya no existen
+<IfModule mod_headers.c>
+  <FilesMatch "^index\.html$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>
+
+# Cabeceras de seguridad. LiteSpeed (Hostinger) las aplica a todo el sitio, también a
+# /api/ (no respeta condiciones env=), por eso valen tanto para la tienda como para la API.
+# CSP: scripts solo propios (+ Chart.js del panel admin); estilos inline permitidos
+# porque react-toastify y el ticket de impresión los inyectan.
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "camera=(), microphone=(), payment=(), geolocation=(self)"
+  Header always set Strict-Transport-Security "max-age=31536000"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self'; frame-src https://www.google.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
+  Header always unset X-Powered-By
+  Header unset X-Powered-By
+</IfModule>

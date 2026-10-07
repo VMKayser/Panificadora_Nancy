@@ -1,9 +1,21 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, ShoppingCart, Trash2 } from 'lucide-react';
 import useDebounce from '../hooks/useDebounce';
-import { Container, Row, Col, Card, Button, Table, Form, InputGroup, Badge, Modal, ListGroup } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Form, InputGroup, Badge, Modal, ListGroup } from 'react-bootstrap';
 import { admin, getProductos, getMetodosPagoCached as getMetodosPago } from '../services/api';
+import { formatCurrency } from '../utils/number';
+import { toPedidoItem } from '../utils/stock';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
+import { IMAGEN_PLACEHOLDER, usarImagenRespaldo } from '../utils/imagen';
+
+// El ticket se arma como HTML: todo texto que venga de datos se escapa.
+const escapeHtml = (valor) => String(valor ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 
 export default function VendedorPanel() {
   const { user } = useAuth();
@@ -25,6 +37,10 @@ export default function VendedorPanel() {
   const [clienteNombre, setClienteNombre] = useState('');
   const [descuentoBs, setDescuentoBs] = useState(0);
   const [motivoDescuento, setMotivoDescuento] = useState('');
+  // Post-venta: preguntar al usuario si desea imprimir o ver el recibo
+  const [showPostSaleModal, setShowPostSaleModal] = useState(false);
+  const [lastPedidoForReceipt, setLastPedidoForReceipt] = useState(null);
+  const [lastMontoPagadoForReceipt, setLastMontoPagadoForReceipt] = useState(0);
   
   // Estadísticas del día
   const [statsHoy, setStatsHoy] = useState({
@@ -71,6 +87,9 @@ export default function VendedorPanel() {
     } else if (showPagoModal && isMetodoTipo(metodoPago, 'efectivo') && !montoPagado) {
       setMontoPagado(calcularTotal().toString());
     }
+    // Solo se precarga al abrir el cobro o cambiar de método. Si dependiera de
+    // montoPagado, el campo se volvería a llenar cada vez que el vendedor lo borra.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPagoModal, metodoPago]);
 
   const cargarProductos = async () => {
@@ -180,7 +199,8 @@ export default function VendedorPanel() {
   }, []);
 
   // Fast-add logic: when user clicks a product in the POS grid
-  const handleProductoClick = (producto) => {
+
+  const handleProductoClick = useCallback((producto) => {
     // If product has extras, open compact modal to choose extras
     if (producto.extras_disponibles && producto.extras_disponibles.length > 0) {
       setProductoConExtras(producto);
@@ -193,7 +213,7 @@ export default function VendedorPanel() {
     }
     // Otherwise add immediately
     agregarAlCarrito(producto, 1, {});
-  };
+  }, [agregarAlCarrito]);
 
   const handleToggleExtra = (index) => {
     setExtrasSeleccionados(prev => ({ ...prev, [index]: (prev[index] || 0) > 0 ? 0 : 1 }));
@@ -230,16 +250,29 @@ export default function VendedorPanel() {
   };
 
   const cambiarCantidad = (productoId, nuevaCantidad) => {
+    if (Number.isNaN(Number(nuevaCantidad))) return; // ignore invalid
+
     if (nuevaCantidad < 1) {
       eliminarDelCarrito(productoId);
       return;
     }
 
-    setCarrito(prev => prev.map(item =>
-      item.id === productoId
-        ? { ...item, cantidad: nuevaCantidad }
-        : item
-    ));
+    setCarrito(prev => {
+      return prev.map(item => {
+        if (item.id !== productoId) return item;
+
+        // Determine stock for this item (supports parent products and extras)
+        const stock = item.producto?.inventario?.stock_actual ?? item.producto?.stock_actual ?? item.producto?.stock ?? null;
+
+        if (stock !== null && Number(nuevaCantidad) > Number(stock)) {
+          // Clamp to available stock and inform the user
+          toast.error(`No hay stock suficiente. Máximo disponible: ${stock}`);
+          return { ...item, cantidad: Number(stock) };
+        }
+
+        return { ...item, cantidad: Number(nuevaCantidad) };
+      });
+    });
 
     // If we decreased a parent product to 0 (handled above), extras are already removed by eliminarDelCarrito.
     // If we decreased parent to some lower positive number, keep extras unchanged.
@@ -348,27 +381,51 @@ export default function VendedorPanel() {
         estado: 'entregado', // Marcar como entregado inmediatamente
         descuento_bs: descuento,
   motivo_descuento: motivoDescuento || '',
-        detalles: (cleanupOrphanExtras(carrito).cleaned).map(item => ({
-            // For extras, send the real product id stored in item.producto.id; for main items use item.id
-            producto_id: item.es_extra ? (item.producto?.id || item.id) : item.id,
+        // El servidor recalcula precios y total con los de la BD; los extras van
+        // como producto principal + extra_index
+        detalles: cleaned.map(item => {
+          const { id, extra_index } = toPedidoItem(item);
+          return {
+            producto_id: id,
+            ...(extra_index !== undefined ? { extra_index } : {}),
             cantidad: item.cantidad,
             precio_unitario: item.precio,
             subtotal: item.precio * item.cantidad
-          })),
+          };
+        }),
         subtotal: subtotal,
         total: total
       };
 
-      // Registrar venta (usar endpoint de pedidos)
-      console.log('📤 Enviando pedido:', pedidoData);
-      const response = await admin.createPedido(pedidoData);
-      console.log('✅ Respuesta del servidor:', response);
+  // Registrar venta (usar endpoint de pedidos)
+  if (import.meta.env.DEV) console.debug('📤 Enviando pedido:', pedidoData);
+  const response = await admin.createPedido(pedidoData);
+  if (import.meta.env.DEV) console.debug('✅ Respuesta del servidor:', response);
 
       toast.success('¡Venta registrada exitosamente!', {
         autoClose: 2000
       });
 
-      // Limpiar
+      // Preparar vista previa de recibo (con nombres) usando el carrito limpio.
+      // Subtotal/total salen del servidor, que es quien fija los precios.
+      const pedidoServidor = response?.pedido;
+      const receiptPreview = {
+        ...pedidoData,
+        ...(pedidoServidor ? { subtotal: Number(pedidoServidor.subtotal), total: Number(pedidoServidor.total) } : {}),
+        detalles_preview: cleaned.map(item => ({
+          nombre: item.nombre,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio,
+          subtotal: item.precio * item.cantidad
+        }))
+      };
+
+      // Guardar datos de recibo y mostrar modal que pregunte si desea imprimir o ver
+      setLastPedidoForReceipt(receiptPreview);
+      setLastMontoPagadoForReceipt(montoPagadoFinal);
+      setShowPostSaleModal(true);
+
+      // Limpiar UI
       setCarrito([]);
       setClienteNombre('');
       setMontoPagado('');
@@ -377,24 +434,23 @@ export default function VendedorPanel() {
       setShowPagoModal(false);
       cargarEstadisticas();
 
-      // Opcional: imprimir ticket
-      imprimirTicket(pedidoData, montoPagadoFinal);
-
     } catch (error) {
       console.error('Error procesando venta:', error);
-      console.error('Error completo:', error.response?.data || error.message);
+      if (import.meta.env.DEV) console.error('Error completo:', error.response?.data || error.message);
       toast.error(`Error: ${error.response?.data?.message || 'Error al registrar la venta'}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const imprimirTicket = (pedido, montoPagado) => {
+  const imprimirTicket = (pedido, montoPagado, autoPrint = true) => {
     const ventana = window.open('', '_blank', 'width=300,height=600');
-    const subtotal = calcularSubtotal();
-    const total = calcularTotal();
-    const descuento = parseFloat(descuentoBs) || 0;
-    const cambio = montoPagado - total;
+    // Use the provided pedido data to build the receipt lines (fallback to detalles_preview if available)
+    const items = (pedido && (pedido.detalles_preview || pedido.detalles)) || [];
+    const subtotal =(Number(pedido?.subtotal) || items.reduce((s, it) => s + (Number(it.subtotal) || (Number(it.cantidad || 0) * Number(it.precio_unitario || it.precio_unitario || 0))), 0));
+    const total = Number(pedido?.total) || subtotal;
+    const descuento = Number(pedido?.descuento_bs) || 0;
+    const cambio = (Number(montoPagado) || 0) - total;
     // Resolve display name for metodoPago (could be 'efectivo', 'qr' or numeric id)
     let displayMetodo = '';
     // Normalize displayMetodo safely to avoid calling string methods on numbers or objects
@@ -421,36 +477,36 @@ export default function VendedorPanel() {
           </style>
         </head>
         <body>
-          <div class="center bold">🥖 PANIFICADORA NANCY</div>
+          <div class="center bold">PANIFICADORA NANCY</div>
           <div class="center">La Paz, Bolivia</div>
           <hr>
           <div>Fecha: ${new Date().toLocaleString('es-BO')}</div>
-          <div>Vendedor: ${user?.name}</div>
-          <div>Cliente: ${pedido.cliente_nombre}</div>
+          <div>Vendedor: ${escapeHtml(user?.name)}</div>
+          <div>Cliente: ${escapeHtml(pedido.cliente_nombre)}</div>
           <hr>
           <table>
-            ${carrito.map(item => `
+            ${items.map(item => `
               <tr>
-                <td>${item.nombre}</td>
-                <td class="right">${item.cantidad} x Bs.${item.precio.toFixed(2)}</td>
+                <td>${escapeHtml(item.nombre || item.producto_nombre || item.producto_id)}</td>
+                <td class="right">${escapeHtml(item.cantidad)} x Bs.${formatCurrency(item.precio_unitario || item.precio || 0)}</td>
               </tr>
               <tr>
-                <td colspan="2" class="right">Bs.${(item.cantidad * item.precio).toFixed(2)}</td>
+                <td colspan="2" class="right">Bs.${formatCurrency(item.subtotal || (item.cantidad * (item.precio_unitario || item.precio || 0)))}</td>
               </tr>
             `).join('')}
           </table>
           <hr>
-          <div class="right">SUBTOTAL: Bs.${subtotal.toFixed(2)}</div>
+          <div class="right">SUBTOTAL: Bs.${formatCurrency(subtotal)}</div>
           ${descuento > 0 ? `
-            <div class="right">DESCUENTO: -Bs.${descuento.toFixed(2)}</div>
-            ${motivoDescuento ? `<div class="right"><small>${motivoDescuento}</small></div>` : ''}
+            <div class="right">DESCUENTO: -Bs.${formatCurrency(descuento)}</div>
+            ${motivoDescuento ? `<div class="right"><small>${escapeHtml(motivoDescuento)}</small></div>` : ''}
           ` : ''}
-          <div class="right bold">TOTAL: Bs.${total.toFixed(2)}</div>
+          <div class="right bold">TOTAL: Bs.${formatCurrency(total)}</div>
           ${displayMetodo === 'EFECTIVO' ? `
-            <div class="right">Pagado: Bs.${montoPagado.toFixed(2)}</div>
-            <div class="right">Cambio: Bs.${cambio.toFixed(2)}</div>
+            <div class="right">Pagado: Bs.${formatCurrency(montoPagado)}</div>
+            <div class="right">Cambio: Bs.${formatCurrency(cambio)}</div>
           ` : `
-            <div class="right">Método: ${displayMetodo}</div>
+            <div class="right">Método: ${escapeHtml(displayMetodo)}</div>
           `}
           <hr>
           <div class="center">¡Gracias por su compra!</div>
@@ -459,10 +515,12 @@ export default function VendedorPanel() {
       </html>
     `);
     
-    setTimeout(() => {
-      ventana.print();
-      ventana.close();
-    }, 250);
+    if (autoPrint) {
+      setTimeout(() => {
+        ventana.print();
+        ventana.close();
+      }, 250);
+    }
   };
 
   const debouncedSearch = useDebounce(searchTerm, 300);
@@ -478,7 +536,7 @@ export default function VendedorPanel() {
       <Row className="mb-4">
         <Col>
           <h2 style={{ color: '#534031', fontWeight: 'bold' }}>
-            🛒 Punto de Venta
+            Punto de Venta
           </h2>
           <p className="text-muted">Registro rápido de ventas en mostrador</p>
         </Col>
@@ -486,8 +544,8 @@ export default function VendedorPanel() {
           <Card className="shadow-sm">
             <Card.Body className="py-2 px-3">
               <small className="text-muted">Ventas Hoy</small>
-              <h4 className="mb-0" style={{ color: '#8b6f47' }}>
-                Bs. {statsHoy.total_ventas?.toFixed(2) || '0.00'}
+                <h4 className="mb-0" style={{ color: '#8b6f47' }}>
+                Bs. {formatCurrency(statsHoy.total_ventas || 0)}
               </h4>
             </Card.Body>
           </Card>
@@ -502,7 +560,7 @@ export default function VendedorPanel() {
               <Row className="mb-3">
                 <Col md={6}>
                   <InputGroup>
-                    <InputGroup.Text>🔍</InputGroup.Text>
+                    <InputGroup.Text><Search size={16} /></InputGroup.Text>
                     <Form.Control
                       placeholder="Buscar producto..."
                       value={searchTerm}
@@ -541,17 +599,14 @@ export default function VendedorPanel() {
                               src={
                                 producto.imagenes?.[0]?.url_imagen_completa 
                                   || producto.imagenes?.[0]?.url_imagen 
-                                  || 'https://via.placeholder.com/150?text=Sin+Imagen'
+                                  || IMAGEN_PLACEHOLDER
                               }
                               srcSet={producto.imagenes?.[0] ? `${producto.imagenes[0].url_imagen || producto.imagenes[0].url_imagen_completa || ''} 300w, ${producto.imagenes[0].url_imagen_completa || producto.imagenes[0].url_imagen || ''} 800w` : undefined}
                               sizes="(max-width: 768px) 45vw, 150px"
                               loading="lazy"
                               decoding="async"
                               style={{ height: '120px', objectFit: 'cover' }}
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.src = 'https://via.placeholder.com/150?text=Sin+Imagen';
-                              }}
+                              onError={usarImagenRespaldo}
                             />
                           <Card.Body className="p-2">
                             <div className="d-flex justify-content-between align-items-start">
@@ -561,7 +616,7 @@ export default function VendedorPanel() {
                               {isOutOfStock && <Badge bg="danger">Sin stock</Badge>}
                             </div>
                             <h5 className="text-success mb-0">
-                              Bs. {(parseFloat(String(producto.precio_minorista ?? producto.precio ?? 0)) || 0).toFixed(2)}
+                              Bs. {formatCurrency(producto.precio_minorista ?? producto.precio ?? 0)}
                             </h5>
                           </Card.Body>
                         </Card>
@@ -578,12 +633,12 @@ export default function VendedorPanel() {
         <Col md={4}>
           <Card className="shadow-sm sticky-top" style={{ top: '20px' }}>
             <Card.Header style={{ backgroundColor: '#8b6f47', color: 'white' }}>
-              <h5 className="mb-0">🛒 Carrito de Venta</h5>
+              <h5 className="mb-0">Carrito de Venta</h5>
             </Card.Header>
             <Card.Body style={{ maxHeight: '400px', overflowY: 'auto' }}>
               {carrito.length === 0 ? (
                 <div className="text-center text-muted py-5">
-                  <h1>🛒</h1>
+                  <ShoppingCart size={44} className="mb-2" />
                   <p>Carrito vacío</p>
                 </div>
               ) : (
@@ -605,21 +660,29 @@ export default function VendedorPanel() {
                             <Col xs={6}>
                               <small className="d-block">{parent.nombre}</small>
                               <strong className="text-success">
-                                Bs. {parent.precio.toFixed(2)}
+                                Bs. {formatCurrency(parent.precio)}
                               </strong>
                             </Col>
                             <Col xs={4}>
-                              <InputGroup size="sm">
+                                <InputGroup size="sm">
                                 <Button variant="outline-secondary" size="sm" onClick={() => cambiarCantidad(parent.id, parent.cantidad - 1)}>-</Button>
-                                <Form.Control type="number" min="1" value={parent.cantidad} onChange={(e) => cambiarCantidad(parent.id, parseInt(e.target.value))} className="text-center" style={{ maxWidth: '50px' }} />
+                                <Form.Control
+                                  type="number"
+                                  min="1"
+                                  max={parent.producto?.inventario?.stock_actual ?? parent.producto?.stock_actual ?? parent.producto?.stock ?? ''}
+                                  value={parent.cantidad}
+                                  onChange={(e) => cambiarCantidad(parent.id, parseInt(e.target.value))}
+                                  className="text-center"
+                                  style={{ maxWidth: '50px' }}
+                                />
                                 <Button variant="outline-secondary" size="sm" onClick={() => cambiarCantidad(parent.id, parent.cantidad + 1)}>+</Button>
                               </InputGroup>
                             </Col>
                             <Col xs={2} className="text-end">
-                              <Button variant="outline-danger" size="sm" onClick={() => eliminarDelCarrito(parent.id)}>🗑️</Button>
+                              <Button variant="outline-danger" size="sm" onClick={() => eliminarDelCarrito(parent.id)}><Trash2 size={16} /></Button>
                             </Col>
                           </Row>
-                          <div className="text-end mt-2"><strong>Subtotal: Bs. {(parent.precio * parent.cantidad).toFixed(2)}</strong></div>
+                            <div className="text-end mt-2"><strong>Subtotal: Bs. {formatCurrency(parent.precio * parent.cantidad)}</strong></div>
                         </ListGroup.Item>
 
                         {/* Render children extras, if any */}
@@ -633,15 +696,23 @@ export default function VendedorPanel() {
                               <Col xs={4}>
                                 <InputGroup size="sm">
                                   <Button variant="outline-secondary" size="sm" onClick={() => cambiarCantidad(child.id, child.cantidad - 1)}>-</Button>
-                                  <Form.Control type="number" min="1" value={child.cantidad} onChange={(e) => cambiarCantidad(child.id, parseInt(e.target.value))} className="text-center" style={{ maxWidth: '50px' }} />
+                                  <Form.Control
+                                    type="number"
+                                    min="1"
+                                    max={child.producto?.inventario?.stock_actual ?? child.producto?.stock_actual ?? child.producto?.stock ?? ''}
+                                    value={child.cantidad}
+                                    onChange={(e) => cambiarCantidad(child.id, parseInt(e.target.value))}
+                                    className="text-center"
+                                    style={{ maxWidth: '50px' }}
+                                  />
                                   <Button variant="outline-secondary" size="sm" onClick={() => cambiarCantidad(child.id, child.cantidad + 1)}>+</Button>
                                 </InputGroup>
                               </Col>
                               <Col xs={2} className="text-end">
-                                <Button variant="outline-danger" size="sm" onClick={() => eliminarDelCarrito(child.id)}>🗑️</Button>
+                                <Button variant="outline-danger" size="sm" onClick={() => eliminarDelCarrito(child.id)}><Trash2 size={16} /></Button>
                               </Col>
                             </Row>
-                            <div className="text-end mt-2"><strong>Subtotal: Bs. {(child.precio * child.cantidad).toFixed(2)}</strong></div>
+                            <div className="text-end mt-2"><strong>Subtotal: Bs. {formatCurrency(child.precio * child.cantidad)}</strong></div>
                           </ListGroup.Item>
                         ))}
                       </div>
@@ -657,7 +728,7 @@ export default function VendedorPanel() {
                   <Row className="mb-2">
                     <Col><strong>Subtotal:</strong></Col>
                     <Col className="text-end">
-                      Bs. {calcularSubtotal().toFixed(2)}
+                      Bs. {formatCurrency(calcularSubtotal())}
                     </Col>
                   </Row>
                   
@@ -665,7 +736,7 @@ export default function VendedorPanel() {
                     <Row className="mb-2 text-danger">
                       <Col><strong>Descuento:</strong></Col>
                       <Col className="text-end">
-                        -Bs. {parseFloat(descuentoBs).toFixed(2)}
+                        -Bs. {formatCurrency(descuentoBs)}
                       </Col>
                     </Row>
                   )}
@@ -674,7 +745,7 @@ export default function VendedorPanel() {
                     <Col><strong>Total:</strong></Col>
                     <Col className="text-end">
                       <h4 className="text-success mb-0">
-                        Bs. {calcularTotal().toFixed(2)}
+                        Bs. {formatCurrency(calcularTotal())}
                       </h4>
                     </Col>
                   </Row>
@@ -687,7 +758,7 @@ export default function VendedorPanel() {
                     className="w-100"
                     onClick={() => setShowPagoModal(true)}
                   >
-                    💰 Procesar Pago
+                    Procesar Pago
                   </Button>
                   <Button
                     variant="outline-danger"
@@ -726,7 +797,7 @@ export default function VendedorPanel() {
                     <button className="btn btn-sm btn-outline-secondary" onClick={() => handleChangeExtraQty(idx, (extrasSeleccionados[idx] || 0) - 1)}>-</button>
                     <div style={{ minWidth: '28px', textAlign: 'center' }}>{extrasSeleccionados[idx] || 0}</div>
                     <button className="btn btn-sm btn-outline-secondary" onClick={() => handleChangeExtraQty(idx, (extrasSeleccionados[idx] || 0) + 1)}>+</button>
-                    <div className="ms-2 fw-bold text-success">Bs {(parseFloat(extra.precio_unitario ?? extra.precio ?? 0) || 0).toFixed(2)}</div>
+                      <div className="ms-2 fw-bold text-success">Bs {formatCurrency(extra.precio_unitario ?? extra.precio ?? 0)}</div>
                   </div>
                 </div>
               ))}
@@ -741,10 +812,32 @@ export default function VendedorPanel() {
         </Modal.Footer>
       </Modal>
 
+      {/* POST-VENTA: preguntar si desea Ver o Imprimir recibo */}
+      <Modal show={showPostSaleModal} onHide={() => setShowPostSaleModal(false)} centered>
+        <Modal.Header closeButton style={{ backgroundColor: '#8b6f47', color: 'white' }}>
+          <Modal.Title>Venta Registrada</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p>La venta se registró correctamente. ¿Deseas imprimir el recibo ahora o verlo en pantalla?</p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowPostSaleModal(false)}>Cerrar</Button>
+          <Button variant="outline-primary" onClick={() => {
+            // Abrir solo para visualizar (sin imprimir automático)
+            if (lastPedidoForReceipt) imprimirTicket(lastPedidoForReceipt, lastMontoPagadoForReceipt, false);
+            setShowPostSaleModal(false);
+          }}>Ver Recibo</Button>
+          <Button variant="success" onClick={() => {
+            if (lastPedidoForReceipt) imprimirTicket(lastPedidoForReceipt, lastMontoPagadoForReceipt, true);
+            setShowPostSaleModal(false);
+          }}>Imprimir Recibo</Button>
+        </Modal.Footer>
+      </Modal>
+
       {/* MODAL DE PAGO */}
       <Modal show={showPagoModal} onHide={() => setShowPagoModal(false)} centered>
         <Modal.Header closeButton style={{ backgroundColor: '#8b6f47', color: 'white' }}>
-          <Modal.Title>💰 Procesar Pago</Modal.Title>
+          <Modal.Title>Procesar Pago</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Form>
@@ -801,8 +894,8 @@ export default function VendedorPanel() {
                       else setMetodoPago(val);
                     }}
               >
-                <option value="efectivo">💵 Efectivo</option>
-                <option value="qr">📱 QR</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="qr">QR</option>
               </Form.Select>
             </Form.Group>
 
@@ -818,15 +911,15 @@ export default function VendedorPanel() {
                     min={calcularTotal()}
                     value={montoPagado}
                     onChange={(e) => setMontoPagado(e.target.value)}
-                    placeholder={calcularTotal().toFixed(2)}
+                    placeholder={formatCurrency(calcularTotal())}
                     autoFocus
                   />
                 </InputGroup>
                 {montoPagado && (
                   <Form.Text className={calcularCambio() >= 0 ? 'text-success' : 'text-danger'}>
                     {calcularCambio() >= 0 
-                      ? `Cambio: Bs. ${calcularCambio().toFixed(2)}`
-                      : `Falta: Bs. ${Math.abs(calcularCambio()).toFixed(2)}`
+                      ? `Cambio: Bs. ${formatCurrency(calcularCambio())}`
+                      : `Falta: Bs. ${formatCurrency(Math.abs(calcularCambio()))}`
                     }
                   </Form.Text>
                 )}
@@ -841,13 +934,13 @@ export default function VendedorPanel() {
                   <InputGroup.Text>Bs.</InputGroup.Text>
                   <Form.Control
                     type="text"
-                    value={calcularTotal().toFixed(2)}
+                    value={formatCurrency(calcularTotal())}
                     disabled
                     className="bg-light"
                   />
                 </InputGroup>
                 <Form.Text className="text-muted">
-                  📱 Escanear código QR para pagar
+                  Escanear código QR para pagar
                 </Form.Text>
               </Form.Group>
             )}
@@ -858,17 +951,17 @@ export default function VendedorPanel() {
                   <>
                     <div className="d-flex justify-content-between">
                       <span>Subtotal:</span>
-                      <span>Bs. {calcularSubtotal().toFixed(2)}</span>
+                      <span>Bs. {formatCurrency(calcularSubtotal())}</span>
                     </div>
                     <div className="d-flex justify-content-between text-danger">
                       <span>Descuento:</span>
-                      <span>-Bs. {parseFloat(descuentoBs).toFixed(2)}</span>
+                      <span>-Bs. {formatCurrency(descuentoBs)}</span>
                     </div>
                     <hr className="my-2" />
                   </>
                 )}
                 <h5 className="text-center mb-0">
-                  TOTAL: <span className="text-success">Bs. {calcularTotal().toFixed(2)}</span>
+                  TOTAL: <span className="text-success">Bs. {formatCurrency(calcularTotal())}</span>
                 </h5>
               </Card.Body>
             </Card>
@@ -883,7 +976,7 @@ export default function VendedorPanel() {
             onClick={procesarVenta}
             disabled={loading || (metodoPago === 'efectivo' && calcularCambio() < 0)}
           >
-            {loading ? 'Procesando...' : '✅ Confirmar Venta'}
+            {loading ? 'Procesando...' : 'Confirmar Venta'}
           </Button>
         </Modal.Footer>
       </Modal>

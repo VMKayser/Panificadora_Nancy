@@ -1,17 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Table, Button, Alert, Spinner, Form, Row, Col, Modal, Card } from 'react-bootstrap';
+import { formatCurrency } from '../../utils/number';
 import { admin } from '../../services/api';
 
-export default function PanaderosPanel() {
+export default function PanaderosPanel({ onOpenPayments }) {
   const [panaderos, setPanaderos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [estadisticas, setEstadisticas] = useState(null);
-  const [filtros, setFiltros] = useState({});
+  const [filtros] = useState({});
   const [showPagoModal, setShowPagoModal] = useState(false);
   const [pagarPanadero, setPagarPanadero] = useState(null);
   const [pagoForm, setPagoForm] = useState({ monto: '', kilos_pagados: '' , notas: '' , metodos_pago_id: '', tipo_pago: 'produccion' });
 
-  const cargar = async () => {
+  const cargar = useCallback(async () => {
     try {
       setLoading(true);
       // Remove empty filter values so backend does not treat empty strings as real filters
@@ -28,13 +29,14 @@ export default function PanaderosPanel() {
       setPanaderos(Array.isArray(data) ? data : data.data || []);
       setEstadisticas(stats);
     } catch (error) {
-      console.error('Error al cargar panaderos:', error);
+      if (import.meta.env.DEV) console.error('Error al cargar panaderos:', error);
+      else console.error('Error al cargar panaderos');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filtros]);
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); }, [cargar]);
 
   // Minimal handlers / placeholders (panel intentionally simplified)
   const handleEditar = (p) => {
@@ -49,7 +51,8 @@ export default function PanaderosPanel() {
       await admin.eliminarPanadero(p.id);
       cargar();
     } catch (err) {
-      console.error('Error eliminando panadero:', err);
+      if (import.meta.env.DEV) console.error('Error eliminando panadero:', err);
+      else console.error('Error eliminando panadero');
       alert(err?.response?.data?.message || 'Error eliminando panadero');
     }
   };
@@ -59,7 +62,8 @@ export default function PanaderosPanel() {
       await admin.toggleActivoPanadero(p.id);
       cargar();
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
+      else console.error('Error al cambiar estado');
       alert('Error al cambiar estado');
     }
   };
@@ -67,7 +71,7 @@ export default function PanaderosPanel() {
   const openPagoModal = (p, tipo = 'produccion') => {
     setPagarPanadero(p);
     setPagoForm({
-      monto: tipo === 'produccion' ? ((parseFloat(p.salario_por_kilo||0) * parseFloat(p.total_kilos_producidos||0)).toFixed(2)) : (p.salario_base || 0),
+      monto: tipo === 'produccion' ? formatCurrency((parseFloat(p.salario_por_kilo||0) * parseFloat(p.total_kilos_producidos||0))) : (p.salario_base || 0),
       kilos_pagados: p.total_kilos_producidos || 0,
       notas: '',
       metodos_pago_id: '',
@@ -110,12 +114,11 @@ export default function PanaderosPanel() {
       handleClosePagoModal();
       cargar();
     } catch (err) {
-      console.error('Error creando pago:', err);
+      if (import.meta.env.DEV) console.error('Error creando pago:', err);
+      else console.error('Error creando pago');
       alert(err.response?.data?.message || 'Error registrando pago');
     }
   };
-
-  const handleCloseModal = () => { /* noop - create/edit removed in simplified panel */ };
 
   if (loading) return <div className="text-center py-4"><Spinner animation="border" /></div>;
 
@@ -152,7 +155,7 @@ export default function PanaderosPanel() {
             <Card className="shadow-sm">
               <Card.Body>
                 <h6 className="text-muted">Salario base total (activos)</h6>
-                <h2 className="text-success">Bs. {parseFloat(estadisticas.salario_total_mensual || 0).toFixed(2)}</h2>
+                <h2 className="text-success">Bs. {formatCurrency(estadisticas.salario_total_mensual || 0)}</h2>
               </Card.Body>
             </Card>
           </Col>
@@ -186,10 +189,10 @@ export default function PanaderosPanel() {
                 <td>{p.email || p.user?.email || 'N/A'}</td>
                 <td>{p.turno}</td>
                 <td>{p.especialidad}</td>
-                <td>{parseFloat(p.total_kilos_producidos || 0).toFixed(2)} kg</td>
-                <td>Bs. {parseFloat(p.salario_base || 0).toFixed(2)}</td>
-                <td>Bs. {parseFloat(p.salario_por_kilo || 0).toFixed(2)}</td>
-                <td>Bs. { (parseFloat(p.salario_por_kilo || 0) * parseFloat(p.total_kilos_producidos || 0)).toFixed(2) }</td>
+                <td>{formatCurrency(p.total_kilos_producidos || 0)} kg</td>
+                <td>Bs. {formatCurrency(p.salario_base || 0)}</td>
+                <td>Bs. {formatCurrency(p.salario_por_kilo || 0)}</td>
+                <td>Bs. {formatCurrency((parseFloat(p.salario_por_kilo || 0) * parseFloat(p.total_kilos_producidos || 0)))}</td>
                 <td>
                   <div className="d-flex gap-2">
                     <Button size="sm" variant="outline-primary" onClick={() => handleEditar(p)}>
@@ -198,10 +201,9 @@ export default function PanaderosPanel() {
                                 <Button size="sm" variant="outline-success" onClick={() => openPagoModal(p)}>
                                   Pagar
                                 </Button>
-                                {typeof window !== 'undefined' && typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ === 'undefined' /* noop to avoid lint */}
                                 {/** If parent provided onOpenPayments, show quick 'Ver Pagos' */}
                                 {typeof onOpenPayments === 'function' && (
-                                  <Button size="sm" variant="outline-secondary" onClick={() => onOpenPayments('panadero', p.id, (parseFloat(p.salario_por_kilo||0) * parseFloat(p.total_kilos_producidos||0)).toFixed(2))}>
+                                  <Button size="sm" variant="outline-secondary" onClick={() => onOpenPayments('panadero', p.id, formatCurrency((parseFloat(p.salario_por_kilo||0) * parseFloat(p.total_kilos_producidos||0))))}>
                                     Ver Pagos
                                   </Button>
                                 )}

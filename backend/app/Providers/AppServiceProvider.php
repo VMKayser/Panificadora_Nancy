@@ -3,7 +3,6 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -13,7 +12,9 @@ use App\Models\Producto;
 use App\Observers\ProductoObserver;
 use App\Models\Pedido;
 use App\Observers\PedidoObserver;
-use App\Http\Middleware\SecurityHeaders;
+use App\Support\SecurityLog;
+use Illuminate\Cache\RateLimiting\Limit;
+use App\Support\StorageSymlink;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -34,23 +35,30 @@ class AppServiceProvider extends ServiceProvider
         User::observe(UserObserver::class);
         Producto::observe(ProductoObserver::class);
         Pedido::observe(PedidoObserver::class);
+        StorageSymlink::ensure();
         
-        // Register SecurityHeaders middleware into the 'api' middleware group if router is available
-        // and define a sensible rate limiter for API routes.
-        $this->app->afterResolving(Router::class, function (Router $router) {
-            // Prepend to ensure security headers run early for API responses
-            try {
-                $router->prependMiddlewareToGroup('api', SecurityHeaders::class);
-            } catch (\Throwable $e) {
-                // Fallback: push if prepend not available
-                $router->pushMiddlewareToGroup('api', SecurityHeaders::class);
-            }
+        // SecurityHeaders se registra como middleware global en bootstrap/app.php.
+
+        // Límite general de la API (throttleApi en bootstrap/app.php):
+        // 120/min por usuario autenticado, 60/min por IP para visitantes.
+        RateLimiter::for('api', function (Request $request) {
+            $user = $request->user('sanctum');
+            return $user
+                ? Limit::perMinute(120)->by('user:' . $user->id)->response($this->respuestaLimite(...))
+                : Limit::perMinute(60)->by('ip:' . $request->ip())->response($this->respuestaLimite(...));
         });
 
-        // Define API rate limiter: 60 requests per minute per user or IP
-        RateLimiter::for('api', function (Request $request) {
-            $key = optional($request->user())->id ?: $request->ip();
-            return \Illuminate\Cache\RateLimiting\Limit::perMinute(60)->by($key);
+        // Creación de pedidos desde la tienda (ruta pública): frena el spam de pedidos.
+        // El personal (venta de mostrador) no tiene este límite.
+        RateLimiter::for('pedidos', function (Request $request) {
+            $user = $request->user('sanctum');
+            if ($user && $user->hasAnyRole(['admin', 'vendedor'])) {
+                return Limit::none();
+            }
+            return [
+                Limit::perMinute(5)->by('pedidos-min:' . $request->ip())->response($this->respuestaLimite(...)),
+                Limit::perHour(30)->by('pedidos-hora:' . $request->ip())->response($this->respuestaLimite(...)),
+            ];
         });
 
         // Force a consistent From address to avoid mail providers rewriting it or treating it as spoofing.
@@ -65,5 +73,12 @@ class AppServiceProvider extends ServiceProvider
         } catch (\Throwable $e) {
             // Don't break the application if mail config is not available at boot time.
         }
+    }
+
+    /** Respuesta 429 que además deja constancia en el log de seguridad. */
+    private function respuestaLimite(Request $request, array $headers)
+    {
+        SecurityLog::limiteExcedido($request);
+        return response()->json(['message' => 'Demasiadas solicitudes. Espera un momento e intenta de nuevo.'], 429, $headers);
     }
 }

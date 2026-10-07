@@ -1,18 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { 
-  UserPlus, 
-  Search, 
-  Filter,
-  Edit2,
-  Trash2,
-  Eye,
-  CheckCircle,
-  XCircle,
-  Clock,
-  TrendingUp
-} from 'lucide-react';
+import { UserPlus, Search, Edit2, Trash2, Eye, CheckCircle, XCircle, Clock, TrendingUp } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { pananaderoService } from '../../services/empleadosService';
 import './PanaderosList.css';
@@ -44,15 +33,20 @@ const PanaderosList = () => {
 
   const debouncedBuscar = useDebounce(filtros.buscar, 350);
 
-  useEffect(() => {
-    cargarPanaderos(debouncedBuscar);
-    cargarEstadisticas();
-  }, [filtros.activo, filtros.turno, filtros.especialidad, filtros.sort_by, filtros.sort_order, filtros.per_page, filtros.page, debouncedBuscar]);
-
-  const cargarPanaderos = async (buscarOverride) => {
+  // Usa la búsqueda ya debounced: así no se pide al servidor en cada tecla
+  const cargarPanaderos = useCallback(async () => {
     try {
       setLoading(true);
-      const params = { ...filtros, buscar: typeof buscarOverride !== 'undefined' ? buscarOverride : filtros.buscar };
+      const params = {
+        activo: filtros.activo,
+        turno: filtros.turno,
+        especialidad: filtros.especialidad,
+        sort_by: filtros.sort_by,
+        sort_order: filtros.sort_order,
+        per_page: filtros.per_page,
+        page: filtros.page,
+        buscar: debouncedBuscar,
+      };
       const response = await pananaderoService.getAll(params);
       setPanaderos(response.data);
       setPaginacion({
@@ -66,16 +60,21 @@ const PanaderosList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedBuscar, filtros.activo, filtros.turno, filtros.especialidad, filtros.sort_by, filtros.sort_order, filtros.per_page, filtros.page]);
 
-  const cargarEstadisticas = async () => {
+  const cargarEstadisticas = useCallback(async () => {
     try {
       const response = await pananaderoService.getEstadisticas();
       setEstadisticas(response);
     } catch (error) {
       console.error('Error al cargar estadísticas:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    cargarPanaderos();
+    cargarEstadisticas();
+  }, [cargarPanaderos, cargarEstadisticas]);
 
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
@@ -121,21 +120,13 @@ const PanaderosList = () => {
     return colors[turno] || 'badge-secondary';
   };
 
-  const getEspecialidadIcon = (especialidad) => {
-    const icons = {
-      'pan': '🍞',
-      'reposteria': '🍰',
-      'ambos': '🥐'
-    };
-    return icons[especialidad] || '👨‍🍳';
-  };
 
   return (
     <div className="panaderos-container">
       {/* Header con estadísticas */}
       <div className="page-header">
         <div className="header-title">
-          <h1>👨‍🍳 Gestión de Panaderos</h1>
+          <h1>Gestión de Panaderos</h1>
           <p>Administra el personal de producción de la panadería</p>
         </div>
         <Link to="/admin/empleados/panaderos/nuevo" className="btn btn-primary">
@@ -288,7 +279,7 @@ const PanaderosList = () => {
                     <td>
                       <div className="panadero-info">
                         <div className="panadero-avatar">
-                          {getEspecialidadIcon(panadero.especialidad)}
+                          {panadero.nombre_completo?.charAt(0) || 'P'}
                         </div>
                         <div>
                           <strong>{panadero.nombre_completo}</strong>
@@ -309,7 +300,7 @@ const PanaderosList = () => {
                     </td>
                     <td>
                       <span className="badge badge-light">
-                        {getEspecialidadIcon(panadero.especialidad)} {panadero.especialidad}
+                        {panadero.especialidad}
                       </span>
                     </td>
                     <td>

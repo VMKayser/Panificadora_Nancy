@@ -17,4 +17,13 @@ abstract class TestCase extends BaseTestCase
         $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
         return $app;
     }
+
+    /** Usuario con el rol indicado (crea el rol si la BD de pruebas aún no lo tiene). */
+    protected function crearUsuarioConRol(string $rol, array $atributos = []): \App\Models\User
+    {
+        \App\Models\Role::query()->updateOrInsert(['name' => $rol], ['description' => ucfirst($rol)]);
+        $user = \App\Models\User::factory()->create($atributos);
+        $user->roles()->attach(\App\Models\Role::where('name', $rol)->value('id'));
+        return $user;
+    }
 }

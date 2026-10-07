@@ -54,6 +54,10 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'frontend_url' => env('FRONTEND_URL', env('APP_URL', 'http://localhost')),
+
+    'frontend_verify_url' => env('FRONTEND_VERIFY_URL', env('FRONTEND_URL', env('APP_URL', 'http://localhost'))),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone
@@ -66,6 +70,10 @@ return [
     */
 
     'timezone' => 'UTC',
+
+    // Zona horaria del negocio (Bolivia). Las fechas se guardan en UTC, pero
+    // "hoy" y las fechas de entrega se interpretan en esta zona.
+    'business_timezone' => env('APP_BUSINESS_TIMEZONE', 'America/La_Paz'),
 
     /*
     |--------------------------------------------------------------------------

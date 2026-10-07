@@ -19,7 +19,8 @@ class DemoDataSeeder extends Seeder
     public function run(): void
     {
         // Safety: only run in local/dev environment unless explicitly called
-        if (!app()->environment('local') && !($this->command && $this->command->option('force'))) {
+        // En producción nunca (db:seed --force es obligatorio allí, así que no sirve de guarda).
+        if (app()->environment('production') || (!app()->environment('local') && !($this->command && $this->command->option('force')))) {
             $this->command->info('DemoDataSeeder skipped: not running in local environment. Run with --force to override.');
             return;
         }

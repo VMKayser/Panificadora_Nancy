@@ -13,7 +13,7 @@ class MateriaPrimaCrudTest extends TestCase
 
     public function test_crud_and_stock_operations_for_materia_prima()
     {
-        $admin = User::factory()->create();
+        $admin = $this->crearUsuarioConRol('admin');
         $this->actingAs($admin, 'sanctum');
 
         // Create

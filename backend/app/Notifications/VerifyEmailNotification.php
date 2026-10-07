@@ -26,14 +26,19 @@ class VerifyEmailNotification extends Notification
     public function toMail($notifiable)
     {
         $verificationUrl = $this->verificationUrl($notifiable);
+        $brandName = Config::get('app.name', 'Panificadora Nancy');
 
         return (new MailMessage)
-            ->subject('Verifica tu correo electrónico - Panificadora Nancy')
-            ->greeting('Hola ' . ($notifiable->name ?? ''))
-            ->line('Gracias por registrarte en Panificadora Nancy. Antes de empezar, necesitamos verificar tu dirección de correo electrónico.')
-            ->action('Verificar correo', $verificationUrl)
-            ->line('Si no solicitaste esta cuenta, puedes ignorar este correo.')
-            ->salutation('Saludos,\nPanificadora Nancy');
+            ->subject('Confirma tu correo y disfruta de ' . $brandName)
+            ->view('emails.verify-email', [
+                'userName' => $notifiable->name ?? 'cliente',
+                'brandName' => $brandName,
+                'verificationUrl' => $verificationUrl,
+                'frontendUrl' => $this->frontendBaseUrl(),
+                'supportEmail' => Config::get('mail.from.address'),
+                'supportPhone' => Config::get('support.phone', env('SUPPORT_PHONE')),
+                'expirationMinutes' => Config::get('auth.verification.expire', 60),
+            ]);
     }
 
     /**
@@ -51,5 +56,16 @@ class VerifyEmailNotification extends Notification
                 'hash' => sha1($notifiable->getEmailForVerification()),
             ]
         );
+    }
+
+    protected function frontendBaseUrl(): string
+    {
+        $frontend = Config::get('app.frontend_url');
+
+        if (empty($frontend)) {
+            $frontend = Config::get('app.url', env('APP_URL', ''));
+        }
+
+        return rtrim($frontend, '/');
     }
 }

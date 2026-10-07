@@ -1,8 +1,21 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
+import { getAvailableUnits } from '../utils/stock';
 
 const CartContext = createContext();
 
+// Un mismo producto pedido para dos personas queda en una sola línea con
+// los dos textos: "Juan Pérez; María López".
+const unirTextos = (actual, nuevo) => {
+  const a = String(actual ?? '').trim();
+  const b = String(nuevo ?? '').trim();
+  if (!b || a === b) return a;
+  return a ? `${a}; ${b}` : b;
+};
+
+// El archivo exporta el Provider y su hook: separarlos no aporta y el
+// único efecto es que Fast Refresh recarga la página al editar este archivo.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useCart = () => {
   const context = useContext(CartContext);
   if (!context) {
@@ -22,20 +35,25 @@ export const CartProvider = ({ children }) => {
     }
   }, []);
 
-  // Guardar carrito en localStorage cuando cambie
+  // Guardar carrito en localStorage cuando cambie (con debounce para performance)
   useEffect(() => {
-    localStorage.setItem('cart', JSON.stringify(cart));
+    const timer = setTimeout(() => {
+      localStorage.setItem('cart', JSON.stringify(cart));
+    }, 500); // Esperar 500ms después del último cambio antes de guardar
+
+    return () => clearTimeout(timer);
   }, [cart]);
 
-  // Agregar producto al carrito
-  const addToCart = (producto, cantidad = 1) => {
-    // Comprueba stock disponible si viene en el objeto producto
-    const available = producto?.inventario?.stock_actual ?? producto?.stock_actual ?? producto?.stock ?? null;
+  // Agregar producto al carrito. personalizacion: el dato que pide el
+  // producto (ej. nombre del difunto), si lo pide.
+  const addToCart = (producto, cantidad = 1, personalizacion = '') => {
+    const available = getAvailableUnits(producto);
+    const safeQuantity = Math.max(1, Math.floor(Number(cantidad) || 1));
     if (available !== null && Number(available) <= 0) {
       toast.error(`${producto.nombre || 'Producto'} sin stock`);
       return;
     }
-    if (available !== null && cantidad > Number(available)) {
+    if (available !== null && safeQuantity > Number(available)) {
       toast.error(`Cantidad solicitada supera el stock disponible (${available})`);
       return;
     }
@@ -44,30 +62,42 @@ export const CartProvider = ({ children }) => {
       if (producto.es_extra) {
         const existingExtra = prevCart.find(item => item.id === producto.id);
         if (existingExtra) {
-          return prevCart.map(item => item.id === producto.id ? { ...item, cantidad: item.cantidad + cantidad } : item);
+          const nuevo = existingExtra.cantidad + safeQuantity;
+          if (available !== null && nuevo > Number(available)) {
+            toast.error(`No hay suficiente stock. Disponible: ${available}`);
+            return prevCart;
+          }
+          return prevCart.map(item => item.id === producto.id ? { ...item, cantidad: nuevo } : item);
         }
         // Ensure we store precio and producto_padre_id if present
-        return [...prevCart, { ...producto, cantidad }];
+        return [...prevCart, { ...producto, cantidad: safeQuantity }];
       }
 
       // For main products, try to find existing non-extra item with same id
       const existingItem = prevCart.find(item => item.id === producto.id && !item.es_extra);
       if (existingItem) {
         // Si existe, comprobar no superar stock
-        const nuevo = existingItem.cantidad + cantidad;
+        const nuevo = existingItem.cantidad + safeQuantity;
         if (available !== null && nuevo > Number(available)) {
           toast.error(`No hay suficiente stock. Disponible: ${available}`);
           return prevCart;
         }
         return prevCart.map(item =>
           item.id === producto.id && !item.es_extra
-            ? { ...item, cantidad: item.cantidad + cantidad }
+            ? { ...item, cantidad: item.cantidad + safeQuantity, personalizacion: unirTextos(item.personalizacion, personalizacion) }
             : item
         );
       }
 
-      return [...prevCart, { ...producto, cantidad }];
+      return [...prevCart, { ...producto, cantidad: safeQuantity, personalizacion: String(personalizacion ?? '').trim() }];
     });
+  };
+
+  // Editar el dato personalizado de una línea desde el carrito
+  const setPersonalizacion = (productoId, texto) => {
+    setCart(prevCart => prevCart.map(item => (
+      item.id === productoId && !item.es_extra ? { ...item, personalizacion: texto } : item
+    )));
   };
 
   // Eliminar producto del carrito
@@ -94,16 +124,21 @@ export const CartProvider = ({ children }) => {
 
   // Actualizar cantidad de un producto
   const updateQuantity = (productoId, cantidad) => {
-    if (cantidad <= 0) {
+    const safeQuantity = Math.floor(Number(cantidad) || 0);
+    if (safeQuantity <= 0) {
       removeFromCart(productoId);
       return;
     }
     setCart(prevCart =>
-      prevCart.map(item =>
-        item.id === productoId
-          ? { ...item, cantidad }
-          : item
-      )
+      prevCart.map(item => {
+        if (item.id !== productoId) return item;
+        const available = getAvailableUnits(item);
+        if (available !== null && safeQuantity > available) {
+          toast.error(`No hay suficiente stock. Disponible: ${available}`);
+          return { ...item, cantidad: available };
+        }
+        return { ...item, cantidad: safeQuantity };
+      })
     );
   };
 
@@ -116,7 +151,7 @@ export const CartProvider = ({ children }) => {
   const getTotal = () => {
     return cart.reduce((total, item) => {
       const price = (item.precio !== undefined) ? parseFloat(item.precio) : parseFloat(item.precio_minorista || 0);
-      return total + ( (isNaN(price) ? 0 : price) * (item.cantidad || 0) );
+      return total + ((isNaN(price) ? 0 : price) * (item.cantidad || 0));
     }, 0);
   };
 
@@ -130,6 +165,7 @@ export const CartProvider = ({ children }) => {
     addToCart,
     removeFromCart,
     updateQuantity,
+    setPersonalizacion,
     clearCart,
     getTotal,
     getTotalItems,

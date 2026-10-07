@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class SystemHealthController extends Controller
 {
@@ -17,7 +18,9 @@ class SystemHealthController extends Controller
             DB::select('SELECT 1');
         } catch (\Exception $e) {
             $ok = false;
-            $errors[] = 'DB: '.$e->getMessage();
+            // Endpoint público: el detalle va al log, no a la respuesta.
+            Log::error('Healthcheck DB: '.$e->getMessage());
+            $errors[] = 'db';
         }
 
         // Cache/Redis check (if configured)
@@ -29,7 +32,8 @@ class SystemHealthController extends Controller
             }
         } catch (\Exception $e) {
             $ok = false;
-            $errors[] = 'Cache: '.$e->getMessage();
+            Log::error('Healthcheck cache: '.$e->getMessage());
+            $errors[] = 'cache';
         }
 
         return response()->json(['status' => $ok ? 'ok' : 'error', 'details' => $errors], $ok ? 200 : 503);

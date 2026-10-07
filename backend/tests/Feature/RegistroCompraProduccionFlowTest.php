@@ -17,7 +17,7 @@ class RegistroCompraProduccionFlowTest extends TestCase
     public function test_registrar_compra_y_luego_produccion_asignada_a_panadero()
     {
         // 1) Crear usuario que registra la compra
-        $comprador = User::factory()->create();
+        $comprador = $this->crearUsuarioConRol('admin');
         $this->actingAs($comprador, 'sanctum');
 
         // 2) Crear materia prima con stock inicial 0
@@ -58,7 +58,7 @@ class RegistroCompraProduccionFlowTest extends TestCase
     InventarioProductoFinal::query()->updateOrInsert(['producto_id' => $producto->id], ['stock_actual' => 0, 'costo_promedio' => 0]);
 
         // 5) Crear panadero y actuar como él para registrar la producción
-        $panadero = User::factory()->create();
+        $panadero = $this->crearUsuarioConRol('panadero');
         $this->actingAs($panadero, 'sanctum');
 
         $produccionPayload = [
