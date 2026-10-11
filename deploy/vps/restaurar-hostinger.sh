@@ -80,4 +80,4 @@ docker compose exec -T db sh -c 'exec mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" 
 echo "→ Construyendo y levantando la aplicación (tarda unos minutos la primera vez)"
 docker compose up -d --build --wait
 
-echo "Listo. Falta el sitio en Caddy: ver deploy/vps/README.md, paso 4."
+echo "Listo. Faltan el DNS y el sitio en Caddy: deploy/vps/README.md, pasos 4 y 5."

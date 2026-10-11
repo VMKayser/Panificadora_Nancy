@@ -18,7 +18,7 @@ internet ─► Caddy de RutaStar (80/443, certificados)
 | `storage/` (imágenes de productos, logs) | `/srv/panificadora-datos/storage` |
 | Base de datos | volumen Docker `panificadora_db` |
 | Copias diarias de la base | `/srv/panificadora-datos/respaldos` |
-| Sitio en Caddy | `/srv/tracking/deploy/sitios/panificadora.caddy` |
+| Sitio en Caddy (dominio, `www` y `api`) | `/srv/tracking/deploy/sitios/panificadora.caddy` |
 
 Mismo esquema de URLs que en Hostinger: la tienda en `/` y Laravel en `/api`
 (la API queda en `/api/api/...`, las imágenes en `/api/storage/...`). Por eso
@@ -42,10 +42,11 @@ Los comandos de los pasos 1–3 y 5 se corren en el VPS, como root.
    bash /srv/panificadora/deploy/vps/restaurar-hostinger.sh /root/predeploy-20261006-185959
    ```
 4. En el panel de Hostinger (Dominios → panificadoranancy.com → DNS), cambiar
-   el registro **A** de `@` a la IP del VPS (`179.199.151.87`). `www` es un
-   CNAME a `@` y sigue solo. Esperar a que se vea:
+   los registros **A** de `@` y de `api` a la IP del VPS (`179.199.151.87`).
+   `www` es un CNAME a `@` y sigue solo; `api` hace falta porque hay imágenes
+   guardadas en la base con ese subdominio. Esperar a que se vea:
    ```bash
-   dig +short panificadoranancy.com     # tiene que dar 179.199.151.87
+   dig +short panificadoranancy.com api.panificadoranancy.com   # las dos: 179.199.151.87
    ```
 5. Recién entonces, el sitio en Caddy (sin cortar RutaStar):
    ```bash
@@ -91,8 +92,9 @@ la base de Hostinger y apuntar otra vez el registro A a `62.72.62.77`. Luego
 - **El dominio vence el 2026-10-23** (lo registra Hostinger). Renovarlo aparte
   del plan de hosting, o la tienda se cae otra vez.
 - **Correo**: el `.env` manda por `smtp.hostinger.com` con
-  `nancy@panificadoranancy.com`, que venía con el plan. Si el correo de
-  Hostinger dejó de funcionar, los avisos de pedidos fallan (la tienda sigue;
+  `nancy@panificadoranancy.com`, que venía con el plan. El 2026-10-10, ya
+  vencido el plan, todavía autenticaba; no tocar los registros MX. Si el correo
+  de Hostinger deja de funcionar, los avisos de pedidos fallan (la tienda sigue;
   los trabajos quedan en `failed_jobs`). Opciones: renovar solo el correo, o
   un SMTP externo (Brevo, Gmail con contraseña de aplicación) en `laravel.env`
   y `docker compose restart app cola scheduler` para que lo lean.

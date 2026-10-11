@@ -19,3 +19,16 @@ panificadoranancy.com {
 	# la red de RutaStar solo para esto.
 	reverse_proxy panificadora-web:80
 }
+
+# El subdominio viejo de la API. Algunas imágenes quedaron guardadas en la base
+# como https://api.panificadoranancy.com/storage/...; en Hostinger su docroot
+# era el public/ de Laravel, que aquí está en /api.
+api.panificadoranancy.com {
+	encode zstd gzip
+	header -Server
+	request_body {
+		max_size 25MB
+	}
+	rewrite * /api{uri}
+	reverse_proxy panificadora-web:80
+}
