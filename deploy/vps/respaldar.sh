@@ -6,6 +6,8 @@
 # (DATOS/storage) no entran: cambian poco y las cubre el snapshot del VPS.
 set -euo pipefail
 cd "$(dirname "$0")"
+# El volcado trae datos de clientes: solo root lo lee.
+umask 077
 
 GUARDAR=14
 DATOS="$(sed -n 's/^DATOS=//p' .env)"
