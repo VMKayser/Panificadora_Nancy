@@ -33,3 +33,6 @@ Thumbs.db
 deploy/backups/
 *.tar.gz
 frontend/live-index.html
+
+# .env del compose del VPS (contraseñas de MariaDB)
+deploy/vps/.env

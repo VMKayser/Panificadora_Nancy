@@ -1,0 +1,21 @@
+# Lo que nunca entra a la imagen: dependencias y builds locales (se instalan
+# dentro), datos y secretos. En el VPS casi nada de esto existe, porque el
+# código viene de git; esto cuida los builds de prueba en la máquina local.
+.git
+**/node_modules
+backend/vendor
+backend/storage
+backend/public/storage
+backend/bootstrap/cache/*.php
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/dist
+frontend/.env
+frontend/.env.*
+deploy/backups
+deploy/vps/.env
+**/*.tar.gz
+**/*.sql
+**/*.sqlite
+backend/.phpunit.result.cache

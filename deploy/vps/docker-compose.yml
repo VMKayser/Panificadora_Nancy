@@ -1,0 +1,123 @@
+# Panificadora Nancy en el VPS de RutaStar (Hostinger KVM 1), al lado de su
+# compose. La guía está en deploy/vps/README.md.
+#
+#   cd /srv/panificadora/deploy/vps && docker compose up -d --build
+#
+# No publica puertos: el Caddy de RutaStar recibe panificadoranancy.com y lo
+# pasa a `web` por la red `tracking_default`. Los datos viven fuera del clon,
+# en DATOS (/srv/panificadora-datos): el .env de Laravel y storage/ (imágenes
+# de productos, logs, sesiones). La base va en el volumen `db`.
+#
+# El VPS es compartido: cada servicio tiene tope de memoria para que la
+# panificadora no le quite RAM a RutaStar.
+
+name: panificadora
+
+x-logs: &logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Los tres contenedores de Laravel usan la misma imagen; solo `app` la construye.
+x-laravel: &laravel
+  image: panificadora-app
+  pull_policy: never
+  volumes:
+    - ${DATOS:?falta DATOS en .env}/laravel.env:/var/www/backend/.env:ro
+    - ${DATOS}/storage:/var/www/backend/storage
+  restart: unless-stopped
+  logging: *logs
+
+services:
+  db:
+    # La misma versión que tenía Hostinger (el volcado es de MariaDB 11.8).
+    image: mariadb:11.8
+    environment:
+      MARIADB_DATABASE: panificadora
+      MARIADB_USER: panificadora
+      MARIADB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?falta DB_ROOT_PASSWORD en .env}
+    # Base chica (decenas de pedidos): 128 MB de buffer sobran.
+    command: >
+      --innodb-buffer-pool-size=128M
+      --max-connections=30
+      --performance-schema=OFF
+      --skip-name-resolve
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 384m
+    restart: unless-stopped
+    logging: *logs
+
+  app:
+    <<: *laravel
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile
+      target: app
+    depends_on:
+      db:
+        condition: service_healthy
+    # php-fpm escucha solo después de migrar y armar las cachés.
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9000"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 320m
+
+  # Correos de pedidos y mensajes de WhatsApp (QUEUE_CONNECTION=database).
+  cola:
+    <<: *laravel
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=60 --memory=128 --max-time=3600
+    depends_on:
+      app:
+        condition: service_healthy
+    mem_limit: 192m
+
+  # routes/console.php: limpieza diaria de tokens vencidos.
+  scheduler:
+    <<: *laravel
+    command: php artisan schedule:work
+    depends_on:
+      app:
+        condition: service_healthy
+    mem_limit: 128m
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile
+      target: web
+    image: panificadora-web
+    pull_policy: never
+    volumes:
+      # Las imágenes de productos: lo que en Hostinger era public/storage.
+      - ${DATOS}/storage/app/public:/usr/share/nginx/html/api/storage:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      default:
+      borde:
+        aliases: [panificadora-web]
+    mem_limit: 64m
+    restart: unless-stopped
+    logging: *logs
+
+volumes:
+  db:
+
+networks:
+  # La red del compose de RutaStar, donde está su Caddy.
+  borde:
+    external: true
+    name: tracking_default

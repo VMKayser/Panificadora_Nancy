@@ -1,0 +1,21 @@
+# Sitio de la panificadora en el Caddy del VPS (el del compose de RutaStar,
+# /srv/tracking). Ese Caddyfile importa /etc/caddy/sitios/*.caddy; este archivo
+# se copia a /srv/tracking/deploy/sitios/ (ver deploy/vps/README.md).
+#
+# Copiarlo solo cuando el dominio ya apunte a la IP del VPS: antes, Caddy no
+# consigue el certificado y gasta intentos del límite de Let's Encrypt.
+
+www.panificadoranancy.com {
+	redir https://panificadoranancy.com{uri} permanent
+}
+
+panificadoranancy.com {
+	encode zstd gzip
+	header -Server
+	request_body {
+		max_size 25MB
+	}
+	# `panificadora-web` es el nginx del compose de la panificadora, unido a
+	# la red de RutaStar solo para esto.
+	reverse_proxy panificadora-web:80
+}
